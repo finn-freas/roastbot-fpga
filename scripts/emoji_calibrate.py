@@ -80,12 +80,34 @@ def cold_mass(key, tok, seed=1):
     return sum(mass) / max(len(mass), 1)
 
 
+USAGE = "usage: python scripts/emoji_calibrate.py [--dir MODELS_DIR] [key ...]"
+
+
+def parse_args(argv):
+    mdir, keys = MDIR, list(argv)
+    if keys and keys[0] == "--dir":
+        if len(keys) < 2:
+            sys.exit(USAGE)
+        mdir, keys = Path(keys[1]), keys[2:]
+    if any(k.startswith("-") for k in keys):
+        sys.exit(USAGE)
+    keys = keys or ["pr"]
+    if not mdir.is_dir():
+        sys.exit(f"{mdir} is not a directory")
+    for key in keys:
+        if not (mdir / f"{key}.pt").is_file():
+            sys.exit(f"{mdir / f'{key}.pt'} not found")
+        for split in ("train", "val"):
+            f = ROOT / "data" / "people" / key / f"{split}.jsonl"
+            if not f.is_file():
+                sys.exit(f"{f} not found")
+    return mdir, keys
+
+
 def main():
     global MDIR
-    args = sys.argv[1:]
-    if args and args[0] == "--dir":
-        MDIR, args = Path(args[1]), args[2:]
-    for key in args or ["pr"]:
+    MDIR, keys = parse_args(sys.argv[1:])
+    for key in keys:
         pred_tok, real_tok = measure(key)
         pred, actual = pred_tok.sum().item(), real_tok.sum().item()
         corr = min(max(actual / max(pred, 1e-9), CORR_RANGE[0]), CORR_RANGE[1])
