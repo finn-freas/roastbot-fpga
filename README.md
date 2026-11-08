@@ -52,7 +52,7 @@ timing on the board with `scripts/sdram_diag.py` before you trust it.
 | `rtl/board/` | the parts specific to the Tang Nano 20K: the top level, SDRAM controller, clock crossing, PLLs, UART, pin constraints and clock constraints |
 | `rtl/sim/` | simulation tops and an SDRAM model, for the tests in `tb/` |
 | `tb/` | cocotb testbenches that run the hardware in Verilator and check it against `src/board.py` (run with `scripts/sim.sh link`, `mv` or `engine`) |
-| `tests/` | plain Python unit tests (pytest) for the USB link framing and the tokenizer |
+| `tests/` | plain Python unit tests (pytest) that need no weights, datasets, GPU or board: the integer math in `board.py` and `engine.py` and their agreement on a tiny random model, the `pack.py` image layout, the `link.py` framing and argument checks, the tokenizer, the `corpus.py` builders, and the argument handling of the chat and diagnostic scripts. Run them with `python -m pytest -q tests` (needs `numpy torch tokenizers pyarrow pytest`) |
 | `scripts/` | everything else you run: building the bitstream (`build_board.sh`), checking the board (`board_check.py`, `sdram_diag.py`), the whole training recipe (`train_roastbot.sh`) and its steps (writing roast chats, filtering them, emoji, distillation targets), and evaluating replies |
 | `models/` | the trained models: `pr_board.pkl.xz` is the quantized model the board runs (unpacked the first time you chat), `pr.pt` is the same model before quantizing, and `pre_b16.pt` is the base model before it learned to roast |
 | `data/people/pr/` | the ~8,100 roast chats it was fine-tuned on, all written by the writer model |
