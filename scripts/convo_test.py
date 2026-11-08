@@ -16,16 +16,38 @@ CHATS = [
 ]
 
 
-def main():
-    key = sys.argv[1] if len(sys.argv) > 1 else "pr"
-    if "norepeat" in sys.argv:
-        chat.REPEAT = {}
-    for a in sys.argv[2:]:
+def parse_args(argv):
+    key = argv[0] if argv else "pr"
+    norepeat = False
+    repeat = emoji = None
+    for a in argv[1:]:
         k, _, v = a.partition("=")
-        if k == "repeat":
-            chat.REPEAT = {key: float(v)}
-        elif k == "emoji":
-            chat.REPEAT_EMOJI = float(v)
+        if a == "norepeat":
+            norepeat = True
+        elif k in ("repeat", "emoji"):
+            try:
+                x = float(v)
+            except ValueError:
+                sys.exit(f"{k}= needs a number, got {v!r}")
+            if k == "repeat":
+                repeat = x
+            else:
+                emoji = x
+        else:
+            sys.exit(f"unknown option {a!r}; usage: convo_test.py [model] [norepeat] [repeat=X] [emoji=X]")
+    if not (chat.MODELS / f"{key}_board.pkl").exists() and not (chat.MODELS / f"{key}_board.pkl.xz").exists():
+        sys.exit(f"no board model for {key!r} in {chat.MODELS}")
+    return key, norepeat, repeat, emoji
+
+
+def main():
+    key, norepeat, repeat, emoji = parse_args(sys.argv[1:])
+    if norepeat:
+        chat.REPEAT = {}
+    if repeat is not None:
+        chat.REPEAT = {key: repeat}
+    if emoji is not None:
+        chat.REPEAT_EMOJI = emoji
     tok = T.load_chat()
     p = chat.Person(key)
     for seed, msgs in enumerate(CHATS, 1):
