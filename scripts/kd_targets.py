@@ -60,6 +60,23 @@ class Ours:
         return self.memo[b]
 
 
+def parse_args(argv):
+    if len(argv) > 2:
+        sys.exit("usage: kd_targets.py [PERSON [K]]")
+    person = argv[0] if argv else "pr"
+    try:
+        K = int(argv[1]) if len(argv) > 1 else 20
+    except ValueError:
+        sys.exit(f"K must be a whole number, got {argv[1]!r}")
+    if K < 1:
+        sys.exit("K must be at least 1")
+    d = ROOT / "data" / "people" / person
+    for split in ("val", "train"):
+        if not (d / f"{split}.jsonl").exists():
+            sys.exit(f"{d / f'{split}.jsonl'} not found")
+    return person, K
+
+
 def targets(person="pr", K=20, batch=8):
     from writer import WRITER, q4
     tok = T.load_chat()
@@ -144,4 +161,4 @@ def targets(person="pr", K=20, batch=8):
 
 
 if __name__ == "__main__":
-    targets(sys.argv[1] if len(sys.argv) > 1 else "pr", int(sys.argv[2]) if len(sys.argv) > 2 else 20)
+    targets(*parse_args(sys.argv[1:]))
