@@ -152,15 +152,51 @@ def judge(names):
               f"emoji repeated next reply {rep}/{pairs}", flush=True)
 
 
+USAGE = ("usage: reply_eval.py gen NAME N_BEST BUDGET [ALPHA [TEMP [CUT [ROUNDS]]]]\n"
+         "       reply_eval.py sense|judge NAME...\n"
+         "       reply_eval.py compare BASE NAME...\n"
+         "       reply_eval.py reference")
+
+
+def parse_args(argv):
+    cmd = argv[0] if argv else None
+    rest = argv[1:]
+    if cmd == "reference":
+        if rest:
+            raise SystemExit(USAGE)
+        return cmd, ()
+    if cmd == "gen":
+        if not 3 <= len(rest) <= 7:
+            raise SystemExit(USAGE)
+        try:
+            n_best, budget = int(rest[1]), int(rest[2])
+        except ValueError:
+            raise SystemExit(f"N_BEST and BUDGET must be integers, got {rest[1]!r} and {rest[2]!r}")
+        if n_best < 1 or budget < 1:
+            raise SystemExit("N_BEST and BUDGET must be at least 1")
+        try:
+            f = [float(a) for a in rest[3:]]
+        except ValueError:
+            raise SystemExit(f"the options after BUDGET must be numbers, got {' '.join(rest[3:])!r}")
+        if len(f) == 4 and (f[3] != int(f[3]) or f[3] < 1):
+            raise SystemExit(f"ROUNDS must be a whole number of at least 1, got {rest[6]!r}")
+        if len(f) == 4:
+            f[3] = int(f[3])
+        return cmd, (rest[0], n_best, budget, *([None if f[0] < 0 else f[0]] + f[1:] if f else []))
+    if cmd in ("sense", "judge") or cmd == "compare":
+        if not rest or (cmd == "compare" and len(rest) < 2):
+            raise SystemExit(USAGE)
+        for name in rest:
+            if not (OUT / f"{name}.json").is_file():
+                raise SystemExit(f"{OUT / (name + '.json')} not found; run gen {name} first")
+        return cmd, (rest[0], rest[1:]) if cmd == "compare" else (rest,)
+    raise SystemExit(USAGE)
+
+
+def main(argv=None):
+    cmd, args = parse_args(sys.argv[1:] if argv is None else argv)
+    {"gen": gen, "sense": sense, "judge": judge, "compare": compare, "reference": reference}[cmd](*args)
+
+
 if __name__ == "__main__":
-    if sys.argv[1] == "gen":
-        f = [float(a) for a in sys.argv[5:]]
-        gen(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), *([None if f[0] < 0 else f[0]] + f[1:] if f else []))
-    elif sys.argv[1] == "sense":
-        sense(sys.argv[2:])
-    elif sys.argv[1] == "compare":
-        compare(sys.argv[2], sys.argv[3:])
-    elif sys.argv[1] == "reference":
-        reference()
-    else:
-        judge(sys.argv[2:])
+    main()
