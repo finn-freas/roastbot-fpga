@@ -3,18 +3,16 @@ import random
 import sys
 from pathlib import Path
 
-import torch
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from gen_dialogs import stock_lines
-from writer import WRITER, q4
 
 HEAD = "Text chat between a teenager (F) and a savage roast bot (B).\n"
 BATCH = 4
 
 
 def line_scores(tok, net, convs):
+    import torch
+
     out = []
     for b in range(0, len(convs), BATCH):
         part = convs[b:b + BATCH]
@@ -48,13 +46,48 @@ def conv_score(s):
     return (sum(s) + min(s)) / (len(s) + 1) if s else -99.0
 
 
-def main():
-    drop = float(next((a for a in sys.argv[1:] if "=" not in a), 0.15))
-    opt = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
+USAGE = "usage: sense_filter.py [DROP] [src=NAME[,NAME...]]"
+
+
+def parse_args(argv):
+    opt, pos = {}, []
+    for a in argv:
+        if "=" in a:
+            k, v = a.split("=", 1)
+            if k != "src":
+                sys.exit(f"unknown option {k!r}\n{USAGE}")
+            opt[k] = v
+        else:
+            pos.append(a)
+    if len(pos) > 1:
+        sys.exit(USAGE)
+    drop = 0.15
+    if pos:
+        try:
+            drop = float(pos[0])
+        except ValueError:
+            sys.exit(f"DROP must be a number, got {pos[0]!r}")
+        if not 0 <= drop < 1:
+            sys.exit("DROP must be at least 0 and below 1")
+    names = [n for n in opt.get("src", "rb,rb_arg").split(",") if n]
+    if not names:
+        sys.exit("src needs at least one directory name")
+    for name in names:
+        f = ROOT / "data" / "people" / name / "partial.jsonl"
+        if not f.is_file():
+            sys.exit(f"{f} not found")
+    return drop, names
+
+
+def main(argv=None):
+    drop, names = parse_args(sys.argv[1:] if argv is None else argv)
+    from gen_dialogs import stock_lines
+    from writer import WRITER, q4
+
     tok, net = q4(WRITER)
     tok.padding_side = "right"
     r = random.Random(5)
-    for name in opt.get("src", "rb,rb_arg").split(","):
+    for name in names:
         d = ROOT / "data" / "people" / name
         convs, seen = [], set()
         for line in open(d / "partial.jsonl"):
