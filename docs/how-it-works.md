@@ -2,316 +2,138 @@
 
 [← back to the README](../README.md)
 
-The board is a Sipeed Tang Nano 20K. Its FPGA (Gowin GW2AR-18) has about 20K LUTs, 48
-multipliers, 46 block RAMs, and 8 MB of SDRAM inside the same package. That's tiny for a
-language model, so everything here is about fitting the model in that 8 MB and getting it out
-of the SDRAM fast enough.
+The board is a Sipeed Tang Nano 20K. It's got a small Gowin FPGA (about 20K LUTs, 48
+multipliers, 46 block RAMs) and 8 MB of SDRAM. That's really tiny for a language model, so
+pretty much everything here comes down to two things: fitting the model in 8 MB, and getting
+it out of the SDRAM fast enough.
 
 ## The model
 
-It's a Llama-style transformer, sized to fit the board:
+It's a small Llama-style transformer, shrunk down until it fit on the board:
 
 | | |
 |-|-|
 | Layers | 16 |
 | Width | 256 |
-| Attention | 8 query heads sharing 2 key/value heads, rotary positions |
+| Attention | 8 query heads sharing 2 key/value heads |
 | Feed-forward | SwiGLU, 704 wide |
-| Vocabulary | 3,072 word pieces (byte-level BPE, with slots for emoji) |
+| Vocabulary | 3,072 word pieces (with room for emoji) |
 | Context | 512 word pieces |
-| Weights | 4-bit, with an 8-bit scale per group of 32 |
-| Word table and chat memory | 8-bit |
-| Everything in between | 16-bit integers |
+| Weights | 4-bit |
 
-The feed-forward part of each layer is SwiGLU, like in Llama: `down(SiLU(gate(x)) × up(x))`,
-where SiLU(z) = z × sigmoid(z). The gate matrix decides how much of each of the 704 values gets
-through, and the up matrix gives the values. SiLU is close to ReLU for big inputs but smooth
-around zero, and the gating works better than a plain activation at the same size.
+There's no floating point on the FPGA, so everything is integer math. The tricky parts
+(softmax, normalizing, the sigmoid) use small lookup tables instead. `src/board.py` does the
+exact same math in Python, and the board has to match it bit for bit.
 
-There's no floating point on the FPGA. Softmax, RMSNorm and the sigmoid inside SiLU use small
-lookup tables instead, so all the math is integer math. `src/board.py` has the same math in
-Python, and the hardware has to match it exactly.
+## How I trained it
 
-## How the roast bot is trained
+1. **Teach it to talk.** First I trained a base model from scratch on a lot of everyday
+   conversation (the SODA dataset plus Reddit reply chains). This just teaches it English and
+   how chats go back and forth.
+2. **Get a bigger model to write roasts.** A model this small can't learn roasting from a few
+   examples, so a bigger 4B model (running locally) wrote around 10,000 short chats where
+   someone talks to the bot and it roasts them back. I showed it funny TikTok comments and a
+   bunch of comebacks so it got the tone right. No slurs, nothing about groups of people, no
+   suicide jokes.
+3. **Throw out the bad ones.** The big model went back over every chat and scored whether the
+   bot's lines actually made sense. The worst ones got dropped, along with copies of the
+   examples and "your mom" lines that didn't come right after an insult.
+4. **Fine-tune.** Then the small model got trained on the roast chats (with a little normal
+   chat mixed in so it doesn't forget how to talk). It also learns from the big model's top
+   guesses at each word, not just the one word that got written, which helps a lot at this
+   size.
+5. **Pack it.** Last, the model gets squished to 4-bit and packed into one 8 MB image for the
+   board's memory.
 
-**1. A base model.** It's trained from scratch on about 320 million word pieces of everyday
-conversation (the SODA dataset plus Reddit reply chains from casual subreddits), 1.6 billion
-word pieces in total. This part only teaches it English and how chats go back and forth. The
-last 15% of training uses 4-bit weights, so the model gets used to them before it's packed
-for the board.
+`scripts/train_roastbot.sh` runs the whole thing (you'll need a GPU with 8 GB). The base model,
+the roast chats, and the finished model are all in the repo, so you can start from any step,
+like fine-tuning it on your own chats.
 
-**2. Roast chats.** The model is too small to learn roasting from a few examples, so a bigger
-model writes them. A 4-billion-parameter model (`wesjos/Qwen3.5-4B-Fuck`, 4-bit, run locally)
-writes around 10,000 short text chats where someone talks to the bot or argues with it, and
-the bot roasts back. It's shown funny TikTok comments and a bank of comebacks for the tone.
-A few thousand more are arguments where the bot answers an insult with a "your mom" line,
-written in different wordings so the bot doesn't learn just one.
-No slurs, nothing about groups of people, no suicide jokes.
+## How it picks a reply
 
-**3. Filtering.** The same writer model reads every chat again and scores how much sense each
-bot line makes after what was said. The worst ones get dropped. Lines that copy an example
-word for word get cut. The emoji at the end of each line get re-picked so they fit what was
-said. "Your mom" comebacks are only kept right after an insult.
+1. **It reads your message.** Your message gets split into word pieces and sent to the board,
+   which runs them through all 16 layers and remembers them.
+2. **It writes a few replies.** The board writes up to 6 different replies, picking each word
+   at random from the likely ones. It also scores how natural each reply is, with a little
+   bonus for less common words so "lol ok" doesn't win every time.
+3. **It throws out the bad ones.** Replies that loop, repeat themselves, or break the rules
+   (slurs, digs at groups of people, "your mom" lines at the wrong time) get dropped.
+4. **It checks that it's actually answering you.** Small models love safe replies that fit
+   after anything ("fuck off, you're a loser"). So the 3 best replies get scored again as if
+   you'd said nothing, and the one that depends most on what *you* said wins. In blind tests
+   this picked the better reply 34 to 13.
+5. **It remembers.** The winning reply goes back into the chat memory, so it remembers what it
+   said.
 
-**4. Distillation targets.** The writer model reads every chat once more, and at each word of the
-bot's lines it saves its top 20 guesses for the next word, with their probabilities. Its word
-pieces are different from the small model's, so only the positions where both split the text
-at the same place get a target (about 78% of them), and the guesses are mapped onto the small
-model's vocabulary.
-
-**5. Fine-tuning.** The base model is trained on the roast chats, with 5% everyday chat mixed in
-so it doesn't forget how to talk. The loss is the usual next-word loss plus half of the
-cross-entropy against the writer's guesses, so the small model learns which other words would
-also have worked, not just the one that was written. Training keeps going at the lowest
-learning rate until the validation loss hasn't improved for 30 checks in a row (1,500 steps),
-so it stops when it really starts to overfit. Then the model is quantized and packed into one
-8 MB image for the SDRAM.
-
-`scripts/train_roastbot.sh` runs all of it. You need a GPU with 8 GB for the writer model. The
-base model, the roast chats after filtering (7,425 for training and 682 for validation, in
-`data/people/pr/`) and the finished model are all in the repo, so you can also start from any
-step, like fine-tuning the base model on your own chats.
-
-## How a reply works
-
-1. **Reading your message.** The laptop splits it into word pieces and sends them over the UART.
-   For each one the board runs all 16 layers and saves its keys and values in the chat memory
-   in SDRAM (about 24 ms per piece).
-2. **Writing.** After the 16 layers, the board multiplies the result by the whole word table
-   to get a score for all 3,072 pieces, picks one at random from the likely ones, and feeds it
-   straight back in, without waiting for the laptop (about 22 ms per piece at the start of a
-   chat).
-3. **Scoring.** For every piece it writes, the board also works out how likely the model
-   thought it was (a log-probability), plus a small bonus for words that are rare in normal
-   texting, so "lol ok" doesn't win every time. A reply's score is the average.
-4. **Picking the best.** The board writes up to 6 candidate replies and keeps track of the
-   best average score. The laptop drops candidates that loop or repeat themselves, that have
-   a slur, a dig at a group of people or a suicide joke in them, and "your mom" lines that
-   don't follow an insult or came too soon after the last one. If none are left, it asks for up
-   to 12 more.
-5. **Does it answer you?** The 3 best candidates get scored a second time against an empty
-   chat (see below), and the one that depends most on what you said wins.
-6. **Remembering.** The winner goes back into the chat memory, so the bot remembers what it
-   actually said.
-
-The board only has to read your new message each time. Everything from earlier in the chat is
-already in the chat memory. When the 512-piece context fills up, the oldest messages get
-dropped and the last 256 pieces are read in again.
-
-### The candidate score
-
-At each step there's a logit for all 3,072 pieces. The sampler makes two passes over them.
-The first finds the biggest one. The second looks up 2^(logit − max) in a table for every
-piece and adds them up into a total, which is the softmax denominator. Picking a word needs
-that total anyway, so the score comes almost for free:
-
-```
-log2 p(piece) = −(max − logit[piece]) × log2(e) − log2(total)
-score         = log2 p(piece) + bonus[piece]
-```
-
-The log2 is another lookup table, and everything is fixed point with 8 fraction bits. The
-probability is the plain one (temperature 1), not the one used for sampling, so it measures
-how natural the model found the word, not how lucky the draw was. The bonus comes from a table
-in the SDRAM image: −log of how often the piece shows up in everyday texting, so words that
-pick up what you said ("toaster", "motherboard") beat filler.
-
-The board keeps the sum and the count for the current candidate, and the sum, count and number
-of the best one so far. To check if a candidate beats the best, it compares the averages
-without dividing: `sum × best_count > best_sum × count`. Ties go to the earlier candidate.
-
-### Does it answer you?
-
-A small model likes safe replies that would fit after almost anything ("fuck off, you're a
-loser"). To catch those, the board scores each of the 3 best candidates a second time, as if
-it came after an empty chat, and the pick is
-
-```
-mean(score after your chat) − 0.5 × mean(score after an empty chat)
-```
-
-A reply that's just as likely without your message loses points, and one that only makes sense
-after it gains them. This is maximum mutual information decoding. In blind tests the replies
-it picks won 34 to 13 against the plain best score.
-
-It costs very little on the board. The empty chat is three word pieces kept at the end of the
-chat memory (from position 424), and an attention window tells the attention unit to only
-look at positions from there on. Scoring a candidate is a *forced* step: the sampler does its
-two passes over the logits as usual, but takes the given word instead of drawing one, and
-returns its score. The candidate's own score and the best-so-far aren't touched. Afterwards
-the window goes back to 0, so nothing in the real chat is lost.
-
-### "Your mom" lines
-
-Where one is allowed (right after an insult, and not in the last few replies), the first
-candidate is started with "ur mom", "your mom" or "i had your mom" as forced steps, and the
-model finishes it. It only wins if its average score is at least as good as the best normal
-candidate's, so the ones that get through fit what you said. In 30-message chats that are
-half insults that's about 2 or 3 of them, never close together. Any other candidate that
-starts a "your mom" line where none is allowed is stopped right away.
-
-### Picking the word
-
-Sampling uses the Gumbel-max trick: add Gumbel noise (from a 1,024-entry table, with an
-xorshift32 random number) to each scaled logit and take the biggest. Only pieces within a
-cutoff of the top logit can win, which keeps out the really unlikely ones. Emoji are a
-separate class: first the sampler decides "emoji or not" from the emoji share of the total
-(scaled by a gain the laptop sets, so a chat ends up with the usual amount of emoji), then it
-picks within that class.
+**"Your mom" lines** only show up right after you insult it, and never too close together.
+When one's allowed, the bot starts one candidate with "ur mom" or "your mom" and finishes it
+itself, and it only wins if it's actually as good as the normal replies.
 
 ## How the hardware works
 
-The model is way too big for the FPGA's own memory, so all 8 MB gets streamed out of the SDRAM
-for every word piece. Almost every design choice is about using that stream well.
+The model is way too big for the FPGA's own memory, so the whole 8 MB gets streamed out of
+the SDRAM for every single word piece. Basically every design choice is about using that
+stream well.
 
-The model is a program. `src/pack.py` turns it into one SDRAM image: the weights, the word
-table, the lookup tables, room for the chat memory, and a short list of operations (matrix
-multiply, normalize, attention for layer 5, add, ...). The engine reads that list and runs it
-once per word piece.
+The model is packed like a little program: the weights, the word table, the lookup tables,
+room for the chat memory, and a list of steps (multiply this, normalize that, run attention
+for layer 5...). The engine on the FPGA reads that list and runs it once per word piece.
 
 | Block | What it does |
 |-|-|
-| `engine` | reads the operation list and runs the other blocks |
-| `mv_unit` | matrix times vector: 16 4-bit weights per clock straight out of the SDRAM stream, plus the word-table scores |
-| `vec_unit` | everything element-wise: looking up words, RMSNorm, rotary positions, the SwiGLU gating (sigmoid table, then two multiplies), adds, writing the chat memory |
-| `attn_unit` | attention over the 8-bit chat memory, 4 query heads per key/value head at once |
-| `sampler` | softmax, the emoji control, picking the word, and the candidate score |
-| `sdram_ctrl`, `stream_rd`, `sdram_cdc` | the SDRAM controller at 108 MHz, the read stream, and the crossing to 54 MHz |
-| `host_link`, `uart` | the USB UART commands: upload the image, run a word piece (sampled or forced) or a whole run of them, set the attention window, read the result |
+| `engine` | runs the list of steps and drives everything else |
+| `mv_unit` | the matrix math: 16 4-bit weights per clock, straight out of the SDRAM |
+| `vec_unit` | the small stuff: normalizing, positions, adds, the SwiGLU gate |
+| `attn_unit` | attention over the chat memory |
+| `sampler` | picks the next word and scores it |
+| `sdram_ctrl` | the SDRAM controller, at 108 MHz |
+| `host_link`, `uart` | talking to the laptop over USB |
 
-### The matrix unit
+A few things that made it faster:
 
-Every weight matrix is stored row by row. A row starts with a 16-bit multiplier and a shift
-for the whole row, then one 8-bit scale per group of 32 weights, then the weights themselves,
-16 4-bit values per 64-bit word. For each word that comes out of the SDRAM:
-
-1. 16 multipliers multiply the 16 weights by their 16-bit inputs, and the products are added
-2. after every 32 inputs, that partial sum is multiplied by the group's scale and added to the
-   row total
-3. at the end of the row, the total is multiplied by the row's multiplier, shifted, rounded,
-   and saturated back to 16 bits
-
-The inputs sit in a small RAM with 16 lanes, so all 16 come out in one clock. The word table
-uses the same unit with 8-bit weights, 8 per word.
-
-### Attention
-
-The chat memory stores the keys and values as 8-bit numbers, with a shift per layer picked
-when the model is packed. Each key or value head is shared by 4 query heads, so every word
-read from the SDRAM gets used 4 times, once per query head, over 4 clocks. The keys are stored
-position by position. The values are stored transposed, so the weighted sum over all
-positions can be built up one column at a time. The softmax uses the same 2^x table as the
-sampler, and there's one division per output at the end.
-
-### Twice the SDRAM clock
-
-The SDRAM bus is 32 bits wide but the matrix unit wants 64 bits every clock, so at 54 MHz it
-sat idle about half the time. Now the SDRAM controller runs at 108 MHz, which is exactly one
-64-bit word per 54 MHz clock. The PLL makes both clocks from the board's 27 MHz oscillator.
-This took a reply from 7.6 s to 4.8 s, with the same replies.
-
-**Crossing between the clocks.** Requests and read data go through an async FIFO in block RAM.
-The read and write pointers cross between the clocks in Gray code, where only one bit
-changes at a time, so a pointer caught halfway through a change is still off by at most one.
-Control signals cross with a toggle handshake.
-
-**Timing the SDRAM.** Above 100 MHz the SDRAM needs a CAS latency of 3 instead of 2. Its
-internal access takes about 18–20 ns, and 2 clocks at 108 MHz is only 18.5 ns. All the other
-SDRAM timings (row open, precharge, refresh) are counted again in the faster clock.
-
-**Catching the read data.** At 108 MHz a clock is 9.3 ns. The data comes back almost a full
-clock late (the clock going out through a pin, the SDRAM's access time, the data coming back
-through the pins), and each word is only steady on the wires for part of the clock. The data
-is captured in registers right at the pins. The PLL can shift the phase of the clock going to
-the SDRAM, which slides that window earlier or later. At power-up the controller writes a test
-pattern and reads it back with every read latency, then picks the middle of the ones that
-work. For each new build, `scripts/sdram_diag.py` sweeps the phase with 130 million words at
-each setting, and the build uses the middle of the phases with zero errors (1 to 5 for the
-current one, so it uses 3). `scripts/repack_phase.sh` changes the phase in a finished build
-without running place and route again.
-
-### Talking to the laptop
-
-The board's USB chip (a BL616 acting as a USB serial port) doesn't pass the board's bytes on
-right away. It hands them to the computer on a tick, somewhere between 6 and 17 ms depending on
-the day. When the laptop asked for one word piece at a time and waited for each answer, a piece
-the board finished in 21 ms cost two ticks, up to 34 ms, and that was almost half of every reply.
-
-Now a candidate reply is one *run*: one command asks the board for up to N pieces, and the board
-feeds each piece it picks straight back in and sends each result as soon as it has it. It stops
-by itself at the end of a reply or after N pieces (N is what's left of the reply's budget), or
-when the laptop sends a zero byte. Commands whose answers are only checked (jump to a position,
-the attention window, the settings) aren't waited for either.
-
-The laptop sometimes stops a candidate early, for example a "your mom" line where none is
-allowed. By then the board may already have written another piece or two. Those get undone: the
-laptop sets the position back, and puts the random number generator back where it was. It keeps
-its own copy of the generator, which moves 3,073 draws per sampled piece (one for the emoji
-decision, one per word), so it can jump it forward without running it. Such a candidate never
-wins, so its score on the board doesn't matter. The replies stay exactly the same as before,
-just faster: about 5 s instead of 5.2 to 6.3 s in the same session.
-
-A small input queue on the board would have let the laptop send the known pieces (your message,
-the second scoring) back to back too, but even a 32-byte one didn't fit: the design is right at
-the limit of what places.
-
-### Fitting it in
-
-Every multiplier has registers right at its inputs and outputs, because nextpnr doesn't time
-the paths through the DSP blocks. Without them, some builds passed timing and still got wrong
-answers on the board. That costs about 1% more clocks per word piece. The design is at 76% of
-the LUTs, so most placement seeds don't place (1 of 6 for the current build), and each new build
-tries a few.
+- **Running the SDRAM twice as fast.** The memory bus is only 32 bits but the matrix unit wants
+  64 bits every clock, so it was sitting around half the time. Running the SDRAM at 108 MHz
+  (the rest runs at 54 MHz) took a reply from 7.6 s to 4.8 s. Getting the SDRAM to work that
+  fast took some tuning, so `scripts/sdram_diag.py` checks every build before I trust it.
+- **Letting the board write on its own.** The board's USB chip only passes data to the laptop
+  every few milliseconds, so waiting on the laptop between every word was almost half the
+  reply time. Now the laptop asks for a whole reply at once and the board just keeps going.
+  Same replies, about 5 s instead of 6.
+- **Fitting it in.** The design uses 76% of the FPGA, so most placement tries fail and each
+  build tries a few seeds.
 
 ## Results
 
-| Board build (`roastbot_top`) | |
+| | |
 |-|-|
-| FPGA usage | LUT4 76%, DFF 63%, BSRAM 43/46, 34/48 multipliers |
-| Max clock after routing | 69.1 MHz for the engine (runs at 54 MHz), 130.1 MHz for the SDRAM side (runs at 108 MHz) |
-| SDRAM image | 8,038 KiB of 8,188 (weights 6,144, word table 792, chat memory 1,024) |
-| Speed | writing about 21.5 ms per word piece at the start of a chat, plus about 0.05 ms for every piece already in the chat; about 5 s per reply |
+| FPGA usage | 76% of the LUTs, 43 of 46 block RAMs, 34 of 48 multipliers |
+| Memory | 8,038 KiB of the 8,188 KiB SDRAM |
+| Speed | about 21.5 ms per word piece, about 5 s per reply |
+| Accuracy | 14 of 14 test replies identical to the CPU, and 14 of 14 insults |
 
-| Test | |
-|-|-|
-| cocotb (Verilator) | `link`, `mv` and `engine` all bit-exact with `src/board.py` |
-| On the board | 14 of 14 replies identical to the CPU (`scripts/board_check.py --best`), and 14 of 14 insults (`--argue`) |
+### Why not bigger?
 
-### Why not a bigger matrix unit
+16 layers is the max for this board. Each extra layer needs another 448 KiB and there's only
+150 KiB left.
 
-A TPU-style array of multipliers wouldn't make it faster. Writing a piece reads every weight
-once, and with 4-bit weights that's 2 multiplies per byte: the 16 multipliers already use the
-8 bytes the SDRAM delivers per clock, and they wait on it only 5% of the time. More multipliers
-only help if each weight is used for several pieces at once, and the candidates can't be
-written side by side: they share one random number stream, so where one starts depends on how
-long the ones before it were. That leaves the pieces known in advance (your message and the
-second scoring), and doing those two at a time would need about 11 more block RAMs and 16 to 21
-more multipliers; the FPGA has 3 and 13 left. Attention is the one part that's short of multipliers
-(4 of them, using about a tenth of the SDRAM speed), so a wider attention unit would help long
-chats.
+### Would a TPU-style chip help?
 
-### Why not bigger
-
-16 layers is the limit for this board. Each extra layer costs 448 KiB (384 for the weights and
-64 for its chat memory), and there's only 150 KiB left. An 18-layer model would only fit with
-a 4-bit word table and 4-bit keys and values. Measured on the 16-layer model, those cost
-about 1.5% and 1.6% in perplexity, which is about as much as two more layers would gain. More
-layers would also make every word piece about 6% slower each.
+Nope. Writing a word means reading every weight once, and the multipliers already keep up with
+the SDRAM; they're waiting on memory, not math. A TPU only helps if you can reuse each weight
+for a bunch of words at once, and the bot can't write its candidate replies side by side
+without changing what it says. Plus the FPGA is basically full anyway.
 
 ## Testing
 
-`src/board.py` is the reference. It does the exact integer math of the hardware, including the
-rounding, the lookup tables and the random numbers, so the same seed gives the same reply on
-the CPU and on the board.
+`src/board.py` is the reference: it does the exact same integer math as the board, down to the
+rounding and the random numbers, so the same seed gives the same reply on the CPU and on the
+board.
 
-- `scripts/sim.sh link|mv|engine` runs the cocotb tests in Verilator. The engine test runs a
-  whole word piece, then samples and scores two candidates, and checks every register against
-  `src/board.py`.
-- `scripts/board_check.py --best` sends 14 messages to the board and to the CPU and checks that
-  every reply, every candidate score and every pick is the same. Any change to the RTL has to
-  pass it.
-- `./chat.sh` without `--board` runs the reference model, so you can try a model before it goes
-  on the board.
+- `scripts/sim.sh link|mv|engine` simulates the hardware and checks it against `src/board.py`.
+- `scripts/board_check.py --best` sends 14 messages to the board and the CPU and makes sure
+  every reply matches. Every hardware change has to pass it.
+- `./chat.sh` without `--board` runs the reference model, so you can try a model before it
+  goes on the board.
 
-The first time, `chat.sh --board` uploads the model image to the SDRAM (about a minute). It
-checks the checksum first, so it only does that once per power-up.
+The first time you run `chat.sh --board`, it uploads the model to the board (about a minute).
+After that it's already there until you unplug it.
