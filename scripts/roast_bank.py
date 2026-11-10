@@ -2,8 +2,6 @@ import json
 import sys
 from pathlib import Path
 
-import torch
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from writer import GROUPS, NEVER, TIKTOK, WRITER, chat, q4
@@ -28,8 +26,30 @@ RATE = ("Could this comment be thrown as a roast or comeback in reply to almost 
 MIN_SCORE, MAX_WORDS = 6.0, 10
 
 
-def main():
-    mined = [c for c in json.loads(TIKTOK.read_text()) if len(c.split()) <= MAX_WORDS]
+USAGE = "usage: python scripts/roast_bank.py"
+
+
+def load_mined(path):
+    if not path.is_file():
+        sys.exit(f"{path} not found; run scripts/tiktok_style.py first")
+    try:
+        comments = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        sys.exit(f"{path} is not valid JSON: {e}")
+    if not isinstance(comments, list) or not all(isinstance(c, str) for c in comments):
+        sys.exit(f"{path} must hold a JSON list of strings")
+    return [c for c in comments if len(c.split()) <= MAX_WORDS]
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv:
+        sys.exit(USAGE)
+    mined = load_mined(TIKTOK)
+    if not mined:
+        sys.exit(f"{TIKTOK} has no comments of {MAX_WORDS} words or fewer")
+    import torch
+
     tok, net = q4(WRITER)
     digits = [tok.convert_tokens_to_ids(str(d)) for d in range(10)]
     keep = []

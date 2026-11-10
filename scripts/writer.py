@@ -1,9 +1,6 @@
 import re
 from pathlib import Path
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
 ROOT = Path(__file__).resolve().parent.parent
 WRITER = "wesjos/Qwen3.5-4B-Fuck"
 NEVER = re.compile(r"n[i1!]gg|f[a@]gg?[o0]t|\bf[a@]g\b|retard|tr[a@]nn|ch[i1]nk|\bsp[i1]c\b|k[i1]ke|dyke|"
@@ -14,6 +11,9 @@ TIKTOK = ROOT / "data" / "style" / "tiktok_roasts.json"
 
 
 def q4(name):
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
     tok = AutoTokenizer.from_pretrained(name)
     tok.padding_side = "left"
     net = AutoModelForCausalLM.from_pretrained(
