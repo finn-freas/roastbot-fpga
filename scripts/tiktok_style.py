@@ -3,8 +3,6 @@ import re
 import sys
 from pathlib import Path
 
-import torch
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from writer import GROUPS, NEVER, WRITER, chat, q4
@@ -17,14 +15,19 @@ RATE = ("Is this TikTok comment a funny roast or teasing joke, the kind that get
 TOP = 500
 
 
+def candidates(texts):
+    return {c.strip() for c in texts if isinstance(c, str)
+            and re.fullmatch(r"[\x00-\x7f💀😭🙏😂🤣😩😹🫠🥀]+", c.strip()) and 4 <= len(c.split()) <= 20
+            and STY.search(c) and not NEVER.search(c) and not GROUPS.search(c) and "@" not in c}
+
+
 def main():
+    import torch
     from datasets import load_dataset
     ds = load_dataset("ahnnqoc/tiktok-product-video-comments", split="train").select_columns(["text"])
     pool = set()
     for batch in ds.iter(batch_size=20000):
-        pool |= {c.strip() for c in batch["text"] if isinstance(c, str)
-                 and re.fullmatch(r"[\x00-\x7f💀😭🙏😂🤣😩😹🫠🥀]+", c.strip()) and 4 <= len(c.split()) <= 20
-                 and STY.search(c) and not NEVER.search(c) and not GROUPS.search(c) and "@" not in c}
+        pool |= candidates(batch["text"])
     pool = sorted(pool)
     del ds
     print(f"{len(pool)} candidates", flush=True)
