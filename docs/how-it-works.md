@@ -11,15 +11,13 @@ it out of the SDRAM fast enough.
 
 It's a small Llama-style transformer, shrunk down until it fit on the board:
 
-| | |
-|-|-|
-| Layers | 16 |
-| Width | 256 |
-| Attention | 8 query heads sharing 2 key/value heads |
-| Feed-forward | SwiGLU, 704 wide |
-| Vocabulary | 3,072 word pieces (with room for emoji) |
-| Context | 512 word pieces |
-| Weights | 4-bit |
+- **Layers:** 16
+- **Width:** 256
+- **Attention:** 8 query heads sharing 2 key/value heads
+- **Feed-forward:** SwiGLU, 704 wide
+- **Vocabulary:** 3,072 word pieces (with room for emoji)
+- **Context:** 512 word pieces
+- **Weights:** 4-bit
 
 There's no floating point on the FPGA, so everything is integer math. The tricky parts
 (softmax, normalizing, the sigmoid) use small lookup tables instead. `src/board.py` does the
