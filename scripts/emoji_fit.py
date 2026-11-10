@@ -6,11 +6,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import torch
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from writer import WRITER, chat, q4
 
 EMOJI = list("💀😭🙏🤣😂😩😤👀😈🤓😏🤨🙄😬👍😎😔🤦😳")
 LETTERS = "ABCDEFGHIJKLMNOPQRST"
@@ -65,6 +62,10 @@ def score(data, cache, model):
         scores = json.loads(cache.read_text())
         if len(scores) == len(spots):
             return spots, scores
+    import torch
+
+    from writer import chat
+
     tok, net = model()
     ids = [tok.convert_tokens_to_ids(c) for c in LETTERS]
     opts = "\n".join(f"{L}. {e}" for L, e in zip(LETTERS, ["(no emoji)"] + EMOJI))
@@ -86,13 +87,49 @@ def score(data, cache, model):
     return spots, scores
 
 
-def main():
-    nums = [a for a in sys.argv[1:] if "=" not in a]
-    opt = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
-    share = float(nums[0]) if nums else 0.4
-    spread = float(nums[1]) if len(nums) > 1 else 1.0
-    srcs = opt.get("src", "rb,rb_arg").split(",")
-    dst = ROOT / "data" / "people" / opt.get("dst", "rb3")
+USAGE = "usage: emoji_fit.py [SHARE [SPREAD]] [src=NAME,NAME] [dst=NAME]"
+
+
+def parse_args(argv):
+    opt, nums = {}, []
+    for a in argv:
+        if "=" in a:
+            k, v = a.split("=", 1)
+            if k not in ("src", "dst"):
+                sys.exit(f"unknown option {k!r}\n{USAGE}")
+            opt[k] = v
+        else:
+            nums.append(a)
+    if len(nums) > 2:
+        sys.exit(USAGE)
+    vals = []
+    for name, a in zip(("SHARE", "SPREAD"), nums):
+        try:
+            vals.append(float(a))
+        except ValueError:
+            sys.exit(f"{name} must be a number, got {a!r}")
+    share = vals[0] if vals else 0.4
+    spread = vals[1] if len(vals) > 1 else 1.0
+    if not 0 <= share < 1:
+        sys.exit("SHARE must be at least 0 and below 1")
+    srcs = [x for x in opt.get("src", "rb,rb_arg").split(",") if x]
+    if not srcs:
+        sys.exit("src needs at least one name")
+    for name in srcs:
+        for split in ("train", "val"):
+            f = ROOT / "data" / "people" / name / f"{split}.jsonl"
+            if not f.is_file():
+                sys.exit(f"{f} not found")
+    dst = opt.get("dst", "rb3")
+    if not dst or "/" in dst or dst in (".", ".."):
+        sys.exit(f"dst must be a plain directory name, got {dst!r}")
+    return share, spread, srcs, ROOT / "data" / "people" / dst
+
+
+def main(argv=None):
+    share, spread, srcs, dst = parse_args(sys.argv[1:] if argv is None else argv)
+    from writer import WRITER, q4
+
     dst.mkdir(exist_ok=True)
     r = random.Random(11)
     loaded = []
