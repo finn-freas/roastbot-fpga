@@ -57,7 +57,7 @@ module host_link #(
     input  wire logic [47:0] e_s_em,
     input  wire logic [47:0] e_s_total
 );
-    localparam logic [7:0] VERSION = 8'd3;
+    localparam logic [7:0] VERSION = 8'd4;
     localparam int DIV   = (CLK_HZ + BAUD / 2) / BAUD;
     localparam int CHUNK = 16384;
 
@@ -68,7 +68,7 @@ module host_link #(
 
     typedef enum logic [4:0] {
         S_CMD, S_ARG, S_WDATA, S_WLAST, S_RREQ, S_RWAIT, S_SUM, S_REPLY,
-        S_EARG, S_ETAB, S_EWAIT, S_FREPLY, S_FREPLY2, S_YWAIT
+        S_EARG, S_ETAB, S_EWAIT, S_FREPLY, S_FREPLY2, S_YWAIT, S_RUN
     } state_e;
     state_e      st;
     logic [7:0]  cmd;
@@ -90,6 +90,8 @@ module host_link #(
     logic [1:0] etab_ph;
     logic [6:0] etab_a;
     logic       e_seen;
+    logic       run, stop;
+    logic [6:0] run_n;
 
     always_ff @(posedge clk) begin
         tx_v        <= 1'b0;
@@ -108,18 +110,21 @@ module host_link #(
         end
         if (rd_req && rd_ack) rd_req <= 1'b0;
         if (wr_req && wr_ack) wr_req <= 1'b0;
+        if (rx_v && st != S_CMD) stop <= 1'b1;
 
         if (rst) begin
             st     <= S_CMD;
             out_n  <= '0;
             rd_req <= 1'b0;
             wr_req <= 1'b0;
+            run    <= 1'b0;
         end else begin
             unique case (st)
                 S_CMD: if (rx_v) begin
                     cmd  <= rx_d;
                     argn <= '0;
                     unique case (rx_d)
+                        8'h00: ;
                         "P": begin
                             out_sh <= 64'({6'b0, cal_err, sd_ready, VERSION, 8'("K")});
                             out_n  <= 4'd3;
@@ -267,6 +272,9 @@ module host_link #(
                                 e_ftok   <= {rx_d[3:0], args[47:40]};
                                 e_go     <= 1'b1;
                                 e_seen   <= 1'b0;
+                                run      <= args[18];
+                                stop     <= 1'b0;
+                                run_n    <= args[46:40];
                                 st       <= S_EWAIT;
                             end
                         endcase
@@ -316,6 +324,18 @@ module host_link #(
                 S_FREPLY2: if (out_n == 0 && !tx_v) begin
                     out_sh <= 64'(e_s_score[23:8]);
                     out_n  <= 4'd2;
+                    st     <= run ? S_RUN : S_CMD;
+                end
+                S_RUN: if (!stop && run_n > 7'd1 && e_s_tok > 12'd2) begin
+                    run_n  <= run_n - 7'd1;
+                    e_tok  <= e_s_tok;
+                    e_go   <= 1'b1;
+                    e_seen <= 1'b0;
+                    st     <= S_EWAIT;
+                end else if (out_n == 0 && !tx_v) begin
+                    run    <= 1'b0;
+                    out_sh <= 64'("e");
+                    out_n  <= 4'd1;
                     st     <= S_CMD;
                 end
                 S_YWAIT: begin

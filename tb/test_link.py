@@ -48,7 +48,9 @@ async def test_link(dut):
     while not dut.sd_ready.value:
         await RisingEdge(dut.clk)
     await send(dut, b"P")
-    assert await recv(dut, 3) == b"K\x03\x01"
+    assert await recv(dut, 3) == b"K\x04\x01"
+    await send(dut, b"\x00P")
+    assert await recv(dut, 3) == b"K\x04\x01"
     await send(dut, b"D")
     d = await recv(dut, 3)
     diag = int.from_bytes(d[1:3], "little")

@@ -79,7 +79,8 @@ step, like fine-tuning the base model on your own chats.
    in SDRAM (about 24 ms per piece).
 2. **Writing.** After the 16 layers, the board multiplies the result by the whole word table
    to get a score for all 3,072 pieces, picks one at random from the likely ones, and feeds it
-   back in (about 30 ms per piece).
+   straight back in, without waiting for the laptop (about 22 ms per piece at the start of a
+   chat).
 3. **Scoring.** For every piece it writes, the board also works out how likely the model
    thought it was (a log-probability), plus a small bonus for words that are rare in normal
    texting, so "lol ok" doesn't win every time. A reply's score is the average.
@@ -176,7 +177,7 @@ once per word piece.
 | `attn_unit` | attention over the 8-bit chat memory, 4 query heads per key/value head at once |
 | `sampler` | softmax, the emoji control, picking the word, and the candidate score |
 | `sdram_ctrl`, `stream_rd`, `sdram_cdc` | the SDRAM controller at 108 MHz, the read stream, and the crossing to 54 MHz |
-| `host_link`, `uart` | the USB UART commands: upload the image, run a word piece (sampled or forced), set the attention window, read the result |
+| `host_link`, `uart` | the USB UART commands: upload the image, run a word piece (sampled or forced) or a whole run of them, set the attention window, read the result |
 
 ### The matrix unit
 
@@ -225,30 +226,69 @@ is captured in registers right at the pins. The PLL can shift the phase of the c
 the SDRAM, which slides that window earlier or later. At power-up the controller writes a test
 pattern and reads it back with every read latency, then picks the middle of the ones that
 work. For each new build, `scripts/sdram_diag.py` sweeps the phase with 130 million words at
-each setting, and the build uses the middle of the phases with zero errors (3, 4 and 5 for the
-current one, so it uses 4). `scripts/repack_phase.sh` changes the phase in a finished build
+each setting, and the build uses the middle of the phases with zero errors (1 to 5 for the
+current one, so it uses 3). `scripts/repack_phase.sh` changes the phase in a finished build
 without running place and route again.
+
+### Talking to the laptop
+
+The board's USB chip (a BL616 acting as a USB serial port) doesn't pass the board's bytes on
+right away. It hands them to the computer on a tick, somewhere between 6 and 17 ms depending on
+the day. When the laptop asked for one word piece at a time and waited for each answer, a piece
+the board finished in 21 ms cost two ticks, up to 34 ms, and that was almost half of every reply.
+
+Now a candidate reply is one *run*: one command asks the board for up to N pieces, and the board
+feeds each piece it picks straight back in and sends each result as soon as it has it. It stops
+by itself at the end of a reply or after N pieces (N is what's left of the reply's budget), or
+when the laptop sends a zero byte. Commands whose answers are only checked (jump to a position,
+the attention window, the settings) aren't waited for either.
+
+The laptop sometimes stops a candidate early, for example a "your mom" line where none is
+allowed. By then the board may already have written another piece or two. Those get undone: the
+laptop sets the position back, and puts the random number generator back where it was. It keeps
+its own copy of the generator, which moves 3,073 draws per sampled piece (one for the emoji
+decision, one per word), so it can jump it forward without running it. Such a candidate never
+wins, so its score on the board doesn't matter. The replies stay exactly the same as before,
+just faster: about 5 s instead of 5.2 to 6.3 s in the same session.
+
+A small input queue on the board would have let the laptop send the known pieces (your message,
+the second scoring) back to back too, but even a 32-byte one didn't fit: the design is right at
+the limit of what places.
 
 ### Fitting it in
 
 Every multiplier has registers right at its inputs and outputs, because nextpnr doesn't time
 the paths through the DSP blocks. Without them, some builds passed timing and still got wrong
-answers on the board. That costs about 1% more clocks per word piece. The design is at 75% of
-the LUTs, so about half the placement seeds don't place, and each new build tries a few.
+answers on the board. That costs about 1% more clocks per word piece. The design is at 76% of
+the LUTs, so most placement seeds don't place (1 of 6 for the current build), and each new build
+tries a few.
 
 ## Results
 
 | Board build (`roastbot_top`) | |
 |-|-|
-| FPGA usage | LUT4 75%, DFF 63%, BSRAM 43/46, 34/48 multipliers |
-| Max clock after routing | 69.0 MHz for the engine (runs at 54 MHz), 131.3 MHz for the SDRAM side (runs at 108 MHz) |
+| FPGA usage | LUT4 76%, DFF 63%, BSRAM 43/46, 34/48 multipliers |
+| Max clock after routing | 69.1 MHz for the engine (runs at 54 MHz), 130.1 MHz for the SDRAM side (runs at 108 MHz) |
 | SDRAM image | 8,038 KiB of 8,188 (weights 6,144, word table 792, chat memory 1,024) |
-| Speed | reading 24 ms and writing 30 ms per word piece, about 6 s per reply (4.8 s before the second scoring) |
+| Speed | writing about 21.5 ms per word piece at the start of a chat, plus about 0.05 ms for every piece already in the chat; about 5 s per reply |
 
 | Test | |
 |-|-|
 | cocotb (Verilator) | `link`, `mv` and `engine` all bit-exact with `src/board.py` |
 | On the board | 14 of 14 replies identical to the CPU (`scripts/board_check.py --best`), and 14 of 14 insults (`--argue`) |
+
+### Why not a bigger matrix unit
+
+A TPU-style array of multipliers wouldn't make it faster. Writing a piece reads every weight
+once, and with 4-bit weights that's 2 multiplies per byte: the 16 multipliers already use the
+8 bytes the SDRAM delivers per clock, and they wait on it only 5% of the time. More multipliers
+only help if each weight is used for several pieces at once, and the candidates can't be
+written side by side: they share one random number stream, so where one starts depends on how
+long the ones before it were. That leaves the pieces known in advance (your message and the
+second scoring), and doing those two at a time would need about 11 more block RAMs and 16 to 21
+more multipliers; the FPGA has 3 and 13 left. Attention is the one part that's short of multipliers
+(4 of them, using about a tenth of the SDRAM speed), so a wider attention unit would help long
+chats.
 
 ### Why not bigger
 

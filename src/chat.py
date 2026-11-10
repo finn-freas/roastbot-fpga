@@ -196,6 +196,9 @@ class Person:
         em, total = B.class_mass(self.last, EMOJI, f, self.p["exp2"])
         return nxt, em, total, B.token_score(self.last, nxt, f, total, self.w_q)
 
+    def score_seq(self, pairs):
+        return [self.score_after(t, nxt) for t, nxt in pairs]
+
     def step(self, t):
         self.feed([t])
         f = self.p["fmt"]["logit"]
@@ -328,6 +331,7 @@ def reply_best(person, tok, text, temp, cut, rng=None, emoji=None, n_best=BEST_N
         if k >= n_best and means or k and used > lim - BEST_RESERVE:
             break
         person.rewind(p0)
+        person.cap = min(MAX_REPLY, lim - used + 1)
         queue = list(force) if k == 0 else []
         nxt, em, total, sc = person.score_after(T.HIM, queue.pop(0)) if queue else person.step(T.HIM)
         fed, msgs, cur, n, prev, mass, cur_mass, ok, scored = [], [], [], 0, T.HIM, [], 0.0, True, []
@@ -379,11 +383,13 @@ def reply_best(person, tok, text, temp, cut, rng=None, emoji=None, n_best=BEST_N
         person.window(NULL_BASE)
         person.rewind(NULL_BASE)
         person.feed([T.BOS, T.YOU])
-        mi = {}
+        mi, seqs = {}, []
         for c in top:
-            s, toks = sums[c]
             person.rewind(NULL_BASE + 2)
-            s0 = sum(person.score_after(a, b)[3] - int(person.w_q[b]) for a, b in zip([T.HIM] + toks, toks))
+            seqs.append(person.score_seq(list(zip([T.HIM] + sums[c][1], sums[c][1]))))
+        for c, rs in zip(top, seqs):
+            s, toks = sums[c]
+            s0 = sum(r[3] - int(person.w_q[b]) for r, b in zip(rs, toks))
             mi[c] = (s - MMI_LAM * s0) / len(toks)
         person.window(0)
         win = max(top, key=lambda c: mi[c])
@@ -409,6 +415,7 @@ class BoardPerson(Person):
 
     def __init__(self, key, link, log=print):
         self.link = link
+        self.pipe = False
         super().__init__(key)
         import pack as P
         from link import checksum
@@ -424,13 +431,37 @@ class BoardPerson(Person):
         link.init_engine()
         link.emoji_table(EMOJI[:128], self.emoji_bias[:128])
         link.new_conversation()
-        self.mmi = link.ping()["version"] >= 3
+        version = link.ping()["version"]
+        self.mmi = version >= 3
         if self.mmi:
             link.window(0)
+        self.pipe = version >= 4 and os.environ.get("FB_PIPE", "1") == "1"
+        self.run, self.last_tok, self.j, self.cap, self.overrun = None, None, 0, MAX_REPLY, False
+        self.undone = 0
+
+    def sync(self):
+        self._cancel()
+        self.link.sync()
+
+    def _cancel(self):
+        if not self.pipe or self.run is None:
+            return
+        lk = self.link
+        rng = lk.rng
+        ran = len(self.run.stop())
+        self.run = None
+        if ran:
+            if rng is None:
+                raise IOError("steps ran past the end of a candidate and the board's RNG state is unknown (no seed)")
+            lk.post_seed(rng)
+            lk.post_jump(self.pos)
+            self.overrun = True
+            self.undone += ran
 
     def push_table(self, changed):
         if not len(changed):
             return
+        self._cancel()
         runs, start = [], changed[0]
         for a, b in zip(changed, list(changed[1:]) + [None]):
             if b is None or b - a > 8:
@@ -445,59 +476,145 @@ class BoardPerson(Person):
     def reset(self):
         super().reset()
         if hasattr(self, "link"):
-            self.link.new_conversation()
+            if self.pipe:
+                self._cancel()
+                self.link.post_new_conversation()
+            else:
+                self.link.new_conversation()
 
     def feed(self, ids):
+        if not self.pipe:
+            for t in ids:
+                self.pos = self.link.feed(int(t))
+                self.hist.append(int(t))
+            return
+        self._cancel()
         for t in ids:
-            self.pos = self.link.feed(int(t))
+            self.link.post_feed(int(t), expect=self.pos + 1)
             self.hist.append(int(t))
+            self.pos += 1
+        self.j, self.cap = 0, MAX_REPLY
 
     def step(self, t):
-        r = self.link.step(int(t))
+        if not self.pipe:
+            r = self.link.step(int(t))
+            self.hist.append(int(t))
+            self.pos += 1
+            return r
+        if self.run is None or self.run.done or t != self.last_tok:
+            self._cancel()
+            self.run = self.link.start_run(int(t), max(1, min(127, self.cap - self.j)))
+        self.j += 1
+        v = self.run.next()
+        if v is None:
+            raise IOError("the board ended a run of steps before the host did")
+        self.last_tok = v[0]
         self.hist.append(int(t))
         self.pos += 1
-        return r
+        return v
 
     def settings(self, inv_t, cut_q, gain_q, rng):
-        self.link.settings(inv_t, cut_q, gain_q)
+        if self.pipe:
+            self._cancel()
+            self.link.post_settings(inv_t, cut_q, gain_q)
+        else:
+            self.link.settings(inv_t, cut_q, gain_q)
 
     def rewind(self, pos):
-        self.link.jump(pos)
+        if self.pipe:
+            self._cancel()
+            self.link.post_jump(pos)
+            self.j = 0
+        else:
+            self.link.jump(pos)
         super().rewind(pos)
 
     def skip(self, toks):
         super().skip(toks)
-        self.link.jump(self.pos)
+        if self.pipe:
+            self._cancel()
+            self.link.post_jump(self.pos)
+        else:
+            self.link.jump(self.pos)
 
     def window(self, base):
-        self.link.window(base)
+        if self.pipe:
+            self._cancel()
+            self.link.post_window(base)
+        else:
+            self.link.window(base)
         self.base = base
 
     def score_after(self, t, nxt):
-        r = self.link.score_after(int(t), int(nxt))
+        if self.pipe:
+            self._cancel()
+            self.j += 1
+            r = self.link.post_f(2, int(t), int(nxt)).value
+        else:
+            r = self.link.score_after(int(t), int(nxt))
         self.hist.append(int(t))
         self.pos += 1
         return r
 
+    def score_seq(self, pairs):
+        if not self.pipe:
+            return super().score_seq(pairs)
+        self._cancel()
+        rs = []
+        for t, nxt in pairs:
+            rs.append(self.link.post_f(2, int(t), int(nxt)))
+            self.hist.append(int(t))
+            self.pos += 1
+        return Replies(rs)
+
     def best_reset(self):
         super().best_reset()
-        self.link.best(clear=True)
+        if self.pipe:
+            self._cancel()
+            self.overrun = False
+            self.link.post_best(clear=True)
+        else:
+            self.link.best(clear=True)
 
     def cand_end(self, keep=True):
         want = super().cand_end(keep)
-        k, s, n = self.link.best(end=True, keep=keep)
-        if self.best and (k, s, n) != (self.best[2], self.best[0], self.best[1]):
-            raise IOError(f"board best {k, s, n} != host {self.best[2], self.best[0], self.best[1]}")
-        return k if self.best else want
+        host = (self.best[2], self.best[0], self.best[1]) if self.best else None
+        if not self.pipe:
+            k, s, n = self.link.best(end=True, keep=keep)
+            if self.best and (k, s, n) != host:
+                raise IOError(f"board best {k, s, n} != host {host}")
+            return k if self.best else want
+        self._cancel()
+        if keep and self.overrun:
+            raise IOError("a kept candidate had steps undone: its sum on the board is off")
+        self.overrun = False
+
+        def check(v):
+            if host and tuple(v) != host:
+                raise IOError(f"board best {v} != host {host}")
+        self.link.post_best(end=True, keep=keep, check=check)
+        return want
 
     def make_room(self, need):
         if self.pos + need <= NULL_BASE:
             return
         cut = [i for i, t in enumerate(self.hist) if t in (T.YOU, T.HIM) and len(self.hist) - i <= KEEP]
         keep = self.hist[cut[0]:] if cut else []
-        self.link.new_conversation()
+        if self.pipe:
+            self._cancel()
+            self.link.post_new_conversation()
+        else:
+            self.link.new_conversation()
         self.hist, self.pos = [], 0
         self.feed([T.BOS] + keep)
+
+
+class Replies:
+    def __init__(self, rs):
+        self.rs = rs
+
+    def __iter__(self):
+        return (r.value for r in self.rs)
 
 
 def board_reply(person, tok, text, temp, cut, emoji=0.5):

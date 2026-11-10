@@ -13,11 +13,14 @@ class FakeLink(link.Link):
     def __init__(self, replies=()):
         self.sent = bytearray()
         self.replies = bytearray(b"".join(replies))
+        self.pending = []
+        self.rng = None
+        self.run = None
 
     def drain(self, quiet=0.2):
         pass
 
-    def send(self, data):
+    def _send(self, data):
         self.sent += data
 
     def recv(self, n, timeout=5.0):
@@ -200,3 +203,54 @@ def test_main_load_exits_nonzero_on_checksum_mismatch(monkeypatch, tmp_path, cap
         run_load(monkeypatch, tmp_path, 1)
     assert e.value.code == 1
     assert "MISMATCH" in capsys.readouterr().out
+
+
+def step_reply(tok, score=0):
+    return b"f" + struct.pack("<H", tok) + (1).to_bytes(6, "little") + (2).to_bytes(6, "little") + score.to_bytes(3, "little", signed=True)
+
+
+def test_quick_commands_are_not_waited_for():
+    lk = FakeLink([b"j", b"x", b"a" + struct.pack("<H", 6)])
+    lk.post_jump(5)
+    lk.post_window(0)
+    assert lk.sent == b"J\x05\x00X\x00\x00"
+    assert lk.feed(9) == 6
+    assert lk.pending == []
+
+
+def test_nothing_follows_an_unanswered_step():
+    lk = FakeLink([step_reply(7), b"j"])
+    r = lk.post_f(1, 3)
+    lk.post_jump(1)
+    assert r.done and r.value[0] == 7
+    assert lk.sent == struct.pack("<cBHH", b"F", 1, 3, 0) + b"J\x01\x00"
+
+
+def test_run_reads_steps_until_e():
+    lk = FakeLink([step_reply(10), step_reply(2), b"e"])
+    run = lk.start_run(3, 40)
+    assert lk.sent == struct.pack("<cBHH", b"F", 5, 3, 40)
+    assert run.next()[0] == 10
+    assert run.next()[0] == 2
+    assert run.next() is None and run.done and lk.run is None
+    assert run.stop() == []
+
+
+def test_run_stop_sends_zero_and_returns_extra_steps():
+    lk = FakeLink([step_reply(10), step_reply(11), b"e"])
+    run = lk.start_run(3, 40)
+    assert [r[0] for r in run.stop()] == [10, 11]
+    assert lk.sent.endswith(b"\x00") and lk.run is None
+
+
+def test_rng_copy_follows_sampled_steps():
+    x = 0x12345678
+    lk = FakeLink([b"s", step_reply(5), step_reply(6)])
+    lk.seed(x)
+    lk.step(1)
+    lk.step(5)
+    for _ in range(2 * link.DRAWS_PER_STEP):
+        x ^= (x << 13) & 0xFFFFFFFF
+        x ^= x >> 17
+        x ^= (x << 5) & 0xFFFFFFFF
+    assert lk.rng == x

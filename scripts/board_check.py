@@ -53,12 +53,16 @@ def main():
                 a = chat.reply(cpu, tok, q, 0.8, 4.0, rng)[0]
                 t0 = time.time()
                 b, ntok, _ = chat.board_reply(brd, tok, q, 0.8, 4.0)
+            if hasattr(brd, "sync"):
+                brd.sync()
             times.append((time.time() - t0, ntok))
             same += a == b
             n += 1
             print(f"seed {seed} {q!r}: {'same' if a == b else 'DIFFERENT'} {times[-1][0]:.2f}s ({ntok} tokens)  "
                   f"{b[:2] if best else b}" + ("" if a == b else f"  cpu: {a[:2] if best else a}"), flush=True)
     tot = sum(t for t, _ in times)
+    if getattr(brd, "pipe", False):
+        print(f"(link version 4: {brd.undone} steps ran past a stopped candidate and were undone)")
     print(f"{same}/{n} replies identical to the CPU; {tot / n:.2f} s per reply on average, "
           f"{max(t for t, _ in times):.2f} s at most, {sum(k for _, k in times) / tot:.1f} tokens/s")
 

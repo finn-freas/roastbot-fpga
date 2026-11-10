@@ -17,7 +17,7 @@ It's a 16-layer, 12-million-parameter language model, and the FPGA does all of i
 The laptop just sends your message over USB and prints the answer (but you don't need a laptop!)
 
 - **12,067,072 parameters** (16 layers, 4-bit weights)
-- a reply takes about **6 seconds**
+- a reply takes about **5 seconds** (the board writes each candidate reply word after word on its own, instead of waiting for the laptop between words)
 - the model fills the board's whole 8 MB of memory
 - the board's replies match a Python model of the hardware bit for bit
 - built with the open-source tools (Yosys, nextpnr, Verilator, cocotb), no vendor IDE
@@ -58,7 +58,7 @@ timing on the board with `scripts/sdram_diag.py` before you trust it.
 | `data/people/pr/` | the ~8,100 roast chats it was fine-tuned on, all written by the writer model |
 | `data/tok/` | the tokenizer |
 | `data/style/` | the TikTok comments and comebacks shown to the writer model for the tone |
-| `bitstream/` | `roastbot.fs`, the tested bitstream (14 of 14 replies identical to the CPU, plus 14 of 14 insults, SDRAM clock phase 4) |
+| `bitstream/` | `roastbot.fs`, the tested bitstream (link version 4, placement seed 3, SDRAM clock phase 3; 14 of 14 replies identical to the CPU, plus 14 of 14 insults) |
 | `docs/` | [how it works](docs/how-it-works.md): the model, the training, the hardware, and the results |
 
 `chat.sh` at the top just runs `src/chat.py`.
