@@ -89,12 +89,54 @@ for layer 5...). The engine on the FPGA reads that list and runs it once per wor
 | `sdram_ctrl` | the SDRAM controller, at 108 MHz |
 | `host_link`, `uart` | talking to the laptop over USB |
 
-A few things that made it faster:
+### The matrix unit
 
-- **Running the SDRAM twice as fast.** The memory bus is only 32 bits but the matrix unit wants
-  64 bits every clock, so it was sitting around half the time. Running the SDRAM at 108 MHz
-  (the rest runs at 54 MHz) took a reply from 7.6 s to 4.8 s. Getting the SDRAM to work that
-  fast took some tuning, so `scripts/sdram_diag.py` checks every build before I trust it.
+Every weight matrix is stored row by row. Each row starts with a 16-bit multiplier and a shift
+for the whole row, then one 8-bit scale for every group of 32 weights, then the weights
+themselves, packed 16 4-bit weights to a 64-bit word. For every word that comes out of the
+SDRAM:
+
+1. 16 multipliers multiply the 16 weights by their 16-bit inputs, and the results get added up
+2. every 32 inputs, that partial sum gets multiplied by the group's scale and added to the
+   row's total
+3. at the end of the row, the total gets multiplied by the row's multiplier, shifted, rounded,
+   and clamped back down to 16 bits
+
+The inputs sit in a small RAM split into 16 lanes, so all 16 come out in the same clock. The
+word table goes through the same unit with 8-bit weights, 8 per word.
+
+### Running the SDRAM twice as fast
+
+The SDRAM bus is only 32 bits wide, but the matrix unit wants 64 bits every clock, so at 54 MHz
+it was sitting around half the time. So I run the SDRAM controller at 108 MHz, which is
+exactly one 64-bit word per 54 MHz clock. The PLL makes both clocks from the board's 27 MHz
+oscillator. That took a reply from 7.6 s to 4.8 s, with the exact same replies.
+
+**Crossing between the two clocks.** Requests and read data go between the clocks through an
+async FIFO in block RAM. The FIFO's read and write pointers cross over in Gray code, where only
+one bit changes at a time, so if a pointer gets caught halfway through changing it's still only
+off by one at most. Control signals cross with a toggle handshake.
+
+**SDRAM timing.** Above 100 MHz the SDRAM needs a CAS latency of 3 instead of 2. Its internal
+access takes about 18–20 ns, and 2 clocks at 108 MHz is only 18.5 ns. All the other SDRAM
+timings (opening a row, precharge, refresh) get counted again for the faster clock.
+
+**Catching the read data.** At 108 MHz one clock is only 9.3 ns. The data comes back almost a
+whole clock late (the clock has to go out through a pin, the SDRAM has to do its access, and the
+data has to come back in through the pins), and each word is only steady on the wires for part
+of the clock. The data gets caught in registers right at the pins, and the PLL can shift the
+phase of the clock going to the SDRAM, which slides that window earlier or later.
+
+- At power-up, the controller writes a test pattern and reads it back with every read latency,
+  then picks the middle of the ones that work.
+- For every new build, `scripts/sdram_diag.py` sweeps the phase with 130 million words at each
+  setting, and the build uses the middle of the phases with zero errors (1 to 5 for the current
+  one, so it uses 3).
+- `scripts/repack_phase.sh` changes the phase in a finished build without redoing place and
+  route.
+
+### Other things that made it faster
+
 - **Letting the board write on its own.** The board's USB chip only passes data to the laptop
   every few milliseconds, so waiting on the laptop between every word was almost half the
   reply time. Now the laptop asks for a whole reply at once and the board just keeps going.
