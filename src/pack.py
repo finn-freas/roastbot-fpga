@@ -159,9 +159,26 @@ def microcode(p, img):
     return prog
 
 
+USAGE = "usage: python src/pack.py model.pkl"
+
+
+def load_model(argv):
+    if len(argv) != 1:
+        sys.exit(USAGE)
+    src = Path(argv[0])
+    if not src.is_file():
+        sys.exit(f"{src}: no such model file\n{USAGE}")
+    try:
+        p = pickle.loads(src.read_bytes())
+    except (pickle.UnpicklingError, EOFError, AttributeError, ImportError, IndexError, ValueError) as e:
+        sys.exit(f"{src}: not a model pickle: {e}")
+    if not isinstance(p, dict) or "cfg" not in p:
+        sys.exit(f"{src}: not a model pickle (no 'cfg' entry)")
+    return src, p
+
+
 def main():
-    src = Path(sys.argv[1])
-    p = pickle.loads(src.read_bytes())
+    src, p = load_model(sys.argv[1:])
     img, prog = build(p)
     out = src.with_suffix("")
     out.with_suffix(".sdram.bin").write_bytes(img.bytes())

@@ -126,3 +126,22 @@ def test_main_writes_the_sdram_image_next_to_the_pickle(tiny, tmp_path, monkeypa
     assert out.read_bytes() == img.bytes()
     text = capsys.readouterr().out
     assert text.startswith("tiny:") and f"{len(prog)} microcode ops" in text
+
+
+def test_main_rejects_a_missing_argument_file_and_non_model_pickle(tmp_path, monkeypatch):
+    import pickle
+    for argv in ([], ["a", "b"]):
+        monkeypatch.setattr(sys, "argv", ["pack.py", *argv])
+        with pytest.raises(SystemExit, match="usage: python src/pack.py"):
+            P.main()
+    monkeypatch.setattr(sys, "argv", ["pack.py", str(tmp_path / "none.pkl")])
+    with pytest.raises(SystemExit, match="no such model file"):
+        P.main()
+    bad = tmp_path / "bad.pkl"
+    bad.write_bytes(b"not a pickle")
+    monkeypatch.setattr(sys, "argv", ["pack.py", str(bad)])
+    with pytest.raises(SystemExit, match="not a model pickle"):
+        P.main()
+    bad.write_bytes(pickle.dumps([1, 2]))
+    with pytest.raises(SystemExit, match="no 'cfg' entry"):
+        P.main()
