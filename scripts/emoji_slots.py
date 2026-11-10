@@ -9,8 +9,20 @@ import tok as T
 EMOJI_SLOTS = ["️", "🤣", "🏻", "💙", "☺", "😂", "😍", "🤩", "🎉", "😭", "😃", "🤪", "😆", "💕", "🫶", "💗", "❤", "🎂", "🙏", "⚽", "😊", "😳", "😡", "🥳", "🤨", "😋", "🙂", "😔", "👌", "😜", "😁", "🥰", "👍", "😘", "💀", "😢", "😞", "😉", "😅", "🇸", "🤔", "🇺", "🇵", "👋", "♀", "🙌", "🦅", "🤞", "🇯", "👨", "👀", "😈", "🙃", "😩", "😎", "😬", "😠", "😤", "🥴", "🌺", "🌼", "🙄", "🍣", "😚", "🤷", "🤬", "😫", "🤓", "🏈", "😏", "✈", "😛", "🇷", "😗", "🎓", "😵", "👾", "🌚", "😣", "🤦", "👿", "💦", "🍕", "💩", "🎾", "💰", "🍳", "🇮", "😴", "✅", "😕", "🌸", "🐶"]
 
 
+def check_slots(picked):
+    if len(picked) > T.N_RESERVED:
+        sys.exit(f"{len(picked)} emoji do not fit in {T.N_RESERVED} reserved slots")
+    dup = sorted({s for s in picked if picked.count(s) > 1})
+    if dup:
+        sys.exit(f"duplicate emoji in slot list: {' '.join(dup)}")
+
+
 def main():
+    base_file = T.TOK / "tokenizer.json"
+    if not base_file.is_file():
+        sys.exit(f"{base_file} not found; train the tokenizer first")
     picked = EMOJI_SLOTS
+    check_slots(picked)
     slots = T.fill_slots(picked)
     (T.TOK / "slots.json").write_text(json.dumps(slots, ensure_ascii=False))
     print(f"{len(picked)} emoji in slots")
