@@ -146,12 +146,10 @@ phase of the clock going to the SDRAM, which slides that window earlier or later
 
 ## Results
 
-| | |
-|-|-|
-| FPGA usage | 76% of the LUTs, 43 of 46 block RAMs, 34 of 48 multipliers |
-| Memory | 8,038 KiB of the 8,188 KiB SDRAM |
-| Speed | about 21.5 ms per word piece, about 5 s per reply |
-| Accuracy | 14 of 14 test replies identical to the CPU, and 14 of 14 insults |
+- **FPGA usage:** 76% of the LUTs, 43 of 46 block RAMs, 34 of 48 multipliers
+- **Memory:** 8,038 KiB of the 8,188 KiB SDRAM
+- **Speed:** about 21.5 ms per word piece, about 5 s per reply
+- **Accuracy:** 14 of 14 test replies identical to the CPU, and 14 of 14 insults
 
 ### Why not bigger?
 
