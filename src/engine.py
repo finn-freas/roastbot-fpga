@@ -168,10 +168,26 @@ class Engine:
         return self.reg.get("LOGIT") if logits else None
 
 
+USAGE = "usage: python src/engine.py model.pkl [tokens]  (tokens >= 1)"
+
+
+def parse_args(argv):
+    if not 1 <= len(argv) <= 2:
+        sys.exit(USAGE)
+    try:
+        n = int(argv[1]) if len(argv) > 1 else 48
+    except ValueError:
+        sys.exit(USAGE)
+    if n < 1:
+        sys.exit(USAGE)
+    return argv[0], n
+
+
 def main():
-    pkl = Path(sys.argv[1])
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 48
-    p = pickle.loads(pkl.read_bytes())
+    path, n = parse_args(sys.argv[1:])
+    p = P.load_model([path])[1]
+    if n > p["cfg"].seq_len:
+        sys.exit(f"{path}: the model has {p['cfg'].seq_len} positions, so tokens must be at most {p['cfg'].seq_len}")
     rng = np.random.default_rng(0)
     toks = rng.integers(4, p["cfg"].vocab_size, n)
     if not p.get("kv8"):

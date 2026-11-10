@@ -52,3 +52,29 @@ def test_engine_reads_config_from_image(tiny):
 def test_token_cycles_grow_with_position(tiny):
     p, _ = tiny
     assert E.token_cycles(p, 5) > E.token_cycles(p, 0) > 0
+
+
+def test_parse_args_accepts_a_model_and_an_optional_token_count():
+    assert E.parse_args(["m.pkl"]) == ("m.pkl", 48)
+    assert E.parse_args(["m.pkl", "5"]) == ("m.pkl", 5)
+
+
+@pytest.mark.parametrize("argv", [[], ["m.pkl", "5", "6"], ["m.pkl", "x"], ["m.pkl", "0"], ["m.pkl", "-3"]])
+def test_parse_args_rejects_a_bad_command_line(argv):
+    with pytest.raises(SystemExit, match="usage: python src/engine.py"):
+        E.parse_args(argv)
+
+
+def test_main_runs_a_packed_model_and_checks_the_token_count(tiny, tmp_path, monkeypatch, capsys):
+    import pickle
+    src = tmp_path / "tiny.pkl"
+    src.write_bytes(pickle.dumps(tiny[0]))
+    monkeypatch.setattr(sys, "argv", ["engine.py", str(src), "3"])
+    E.main()
+    assert "bit-exact logits on 3/3 tokens" in capsys.readouterr().out
+    monkeypatch.setattr(sys, "argv", ["engine.py", str(src), "17"])
+    with pytest.raises(SystemExit, match="at most 16"):
+        E.main()
+    monkeypatch.setattr(sys, "argv", ["engine.py", str(tmp_path / "none.pkl")])
+    with pytest.raises(SystemExit, match="no such model file"):
+        E.main()
