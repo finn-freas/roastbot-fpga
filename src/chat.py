@@ -91,6 +91,13 @@ def startup_seed(argv):
         sys.exit(f"--seed: not a valid value: {argv[i + 1]}")
 
 
+def finite(arg):
+    value = float(arg)
+    if not math.isfinite(value):
+        raise ValueError(arg)
+    return value
+
+
 def emoji_scale(emoji):
     return (2 * max(0.0, emoji)) ** 2
 
@@ -708,17 +715,17 @@ def main():
                     cur.reset()
                     print("conversation cleared")
                 elif cmd == "temp" and arg:
-                    value = None if arg == "auto" else float(arg)
+                    value = None if arg == "auto" else finite(arg)
                     if value is not None and not value > 0:
                         raise ValueError(arg)
                     temp = value
                     print("each person's own temperature" if temp is None else
                           f"temperature {temp} (board inv_t {round(256 / temp)})")
                 elif cmd == "cut" and arg:
-                    cut = float(arg)
+                    cut = finite(arg)
                     print(f"cutoff: only words within {cut} of the best (lower = safer, higher = wilder)")
                 elif cmd == "emoji" and arg:
-                    emoji = float(arg)
+                    emoji = finite(arg)
                     print(f"emoji {emoji} (0.5 = their usual amount, 1 = more, 0 = none)")
                 elif cmd == "seed" and arg:
                     seed = pick_seed(arg)

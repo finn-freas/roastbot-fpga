@@ -139,7 +139,8 @@ def run_main(monkeypatch, tmp_path, lines):
     C.main()
 
 
-@pytest.mark.parametrize("command", ["/temp abc", "/temp 0", "/temp -1", "/cut x", "/emoji y", "/seed z", "/best 1.5"])
+@pytest.mark.parametrize("command", ["/temp abc", "/temp 0", "/temp -1", "/cut x", "/emoji y", "/seed z", "/best 1.5",
+                                     "/temp inf", "/temp nan", "/cut inf", "/cut nan", "/emoji inf", "/emoji -inf"])
 def test_bad_command_values_do_not_end_the_session(monkeypatch, tmp_path, capsys, command):
     run_main(monkeypatch, tmp_path, [command, "/quit"])
     out = capsys.readouterr().out
@@ -174,3 +175,11 @@ def test_check_options_rejects_unknown_arguments(argv):
     with pytest.raises(SystemExit) as e:
         C.check_options(argv)
     assert "unknown argument" in str(e.value)
+
+
+def test_finite_accepts_numbers_and_rejects_nan_and_inf():
+    assert C.finite("2.5") == 2.5
+    assert C.finite("-1") == -1.0
+    for bad in ["nan", "inf", "-inf", "x"]:
+        with pytest.raises(ValueError):
+            C.finite(bad)
