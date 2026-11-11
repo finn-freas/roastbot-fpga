@@ -140,7 +140,7 @@ def run_main(monkeypatch, tmp_path, lines):
 
 
 @pytest.mark.parametrize("command", ["/temp abc", "/temp 0", "/temp -1", "/cut x", "/emoji y", "/seed z", "/best 1.5",
-                                     "/temp inf", "/temp nan", "/cut inf", "/cut nan", "/emoji inf", "/emoji -inf"])
+                                     "/temp inf", "/temp nan", "/cut inf", "/cut nan", "/cut -1", "/emoji inf", "/emoji -inf"])
 def test_bad_command_values_do_not_end_the_session(monkeypatch, tmp_path, capsys, command):
     run_main(monkeypatch, tmp_path, [command, "/quit"])
     out = capsys.readouterr().out
@@ -183,3 +183,10 @@ def test_finite_accepts_numbers_and_rejects_nan_and_inf():
     for bad in ["nan", "inf", "-inf", "x"]:
         with pytest.raises(ValueError):
             C.finite(bad)
+
+
+def test_cut_zero_is_accepted(monkeypatch, tmp_path, capsys):
+    run_main(monkeypatch, tmp_path, ["/cut 0", "/quit"])
+    out = capsys.readouterr().out
+    assert "cutoff: only words within 0.0" in out
+    assert "not a valid value" not in out

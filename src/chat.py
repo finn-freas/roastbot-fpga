@@ -722,7 +722,10 @@ def main():
                     print("each person's own temperature" if temp is None else
                           f"temperature {temp} (board inv_t {round(256 / temp)})")
                 elif cmd == "cut" and arg:
-                    cut = finite(arg)
+                    value = finite(arg)
+                    if value < 0:
+                        raise ValueError(arg)
+                    cut = value
                     print(f"cutoff: only words within {cut} of the best (lower = safer, higher = wilder)")
                 elif cmd == "emoji" and arg:
                     emoji = finite(arg)
