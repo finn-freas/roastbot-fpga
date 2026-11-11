@@ -28,3 +28,22 @@ def test_writes_a_normalised_distribution(tmp_path, monkeypatch):
     assert p.shape == (T.VOCAB,)
     assert abs(p.sum() - 1) < 1e-9
     assert p[1] > p[2] > p[0] > 0
+
+
+def test_extra_arguments_are_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(T, "TOK", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["unigram.py", str(tmp_path / "out"), "extra"])
+    with pytest.raises(SystemExit) as e:
+        unigram.main()
+    assert "usage" in str(e.value)
+    assert not (tmp_path / "out").exists()
+
+
+def test_empty_token_file_is_rejected(tmp_path, monkeypatch):
+    (tmp_path / "val.bin").write_bytes(b"")
+    monkeypatch.setattr(T, "TOK", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["unigram.py", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as e:
+        unigram.main()
+    assert "is empty" in str(e.value)
+    assert not (tmp_path / "out").exists()
