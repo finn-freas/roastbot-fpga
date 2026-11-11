@@ -159,6 +159,15 @@ def test_main_load_without_a_path_exits_with_usage(monkeypatch):
     assert not opened
 
 
+@pytest.mark.parametrize("argv", [("ping", "extra"), ("load", "m_board", "extra")])
+def test_main_extra_arguments_exit_with_usage(monkeypatch, argv):
+    opened = run_main(monkeypatch, *argv)
+    with pytest.raises(SystemExit) as e:
+        link.main()
+    assert "usage" in str(e.value)
+    assert not opened
+
+
 def test_main_load_missing_image_names_the_file(monkeypatch, tmp_path):
     opened = run_main(monkeypatch, "load", str(tmp_path / "m_board"))
     with pytest.raises(SystemExit) as e:
