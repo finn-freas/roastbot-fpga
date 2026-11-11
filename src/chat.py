@@ -68,6 +68,17 @@ def pick_seed(arg):
     return seed
 
 
+def check_options(argv):
+    args = argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] == "--seed":
+            i += 1
+        elif args[i] != "--board":
+            sys.exit(f"unknown argument {args[i]!r}; usage: chat.py [--board] [--seed N|random]")
+        i += 1
+
+
 def startup_seed(argv):
     if "--seed" not in argv:
         return 1
@@ -654,6 +665,7 @@ def board_reply(person, tok, text, temp, cut, emoji=0.5):
 
 
 def main():
+    check_options(sys.argv)
     tok = T.load_chat()
     keys = [k for k in ["pr"] if board_file(MODELS, k).exists()]
     if not keys:

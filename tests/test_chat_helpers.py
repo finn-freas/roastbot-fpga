@@ -161,3 +161,16 @@ def test_startup_seed_rejects_bad_value(argv):
     with pytest.raises(SystemExit) as e:
         C.startup_seed(argv)
     assert "--seed" in str(e.value)
+
+
+@pytest.mark.parametrize("argv", [["chat.py"], ["chat.py", "--board"], ["chat.py", "--seed", "7"],
+                                  ["chat.py", "--board", "--seed", "random"], ["chat.py", "--seed", "--board"]])
+def test_check_options_accepts_known_options(argv):
+    C.check_options(argv)
+
+
+@pytest.mark.parametrize("argv", [["chat.py", "--bord"], ["chat.py", "extra"], ["chat.py", "--seed", "1", "-x"]])
+def test_check_options_rejects_unknown_arguments(argv):
+    with pytest.raises(SystemExit) as e:
+        C.check_options(argv)
+    assert "unknown argument" in str(e.value)
