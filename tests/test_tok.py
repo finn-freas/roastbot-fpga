@@ -93,3 +93,13 @@ def test_encode_split_counts_and_layout(tiny):
     assert int((ids == tok.BOS).sum()) == 3
     assert ids[0] == tok.BOS
     assert int(((ids == tok.YOU) | (ids == tok.HIM)).sum()) == 5
+
+
+def test_check_args_accepts_reuse_or_nothing():
+    tok.check_args(["tok.py"])
+    tok.check_args(["tok.py", "--reuse"])
+
+
+def test_check_args_rejects_unknown_argument():
+    with pytest.raises(SystemExit, match="unknown argument 'reuse'"):
+        tok.check_args(["tok.py", "reuse"])

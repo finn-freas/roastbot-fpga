@@ -107,7 +107,14 @@ def encode_split(tok, name, rng):
     return n, stats
 
 
+def check_args(argv):
+    extra = [a for a in argv[1:] if a != "--reuse"]
+    if extra:
+        sys.exit(f"unknown argument {extra[0]!r}; usage: tok.py [--reuse]")
+
+
 def main():
+    check_args(sys.argv)
     tok = train_tokenizer() if "--reuse" not in sys.argv else load()
     rng = np.random.default_rng(0)
     info = {}
