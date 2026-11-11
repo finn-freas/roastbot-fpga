@@ -680,7 +680,6 @@ def main():
     link = None
     if "--board" in sys.argv:
         from link import Link
-        i = sys.argv.index("--board")
         first = "pr"
         link = Link()
         people = {first: BoardPerson(first, link)}
