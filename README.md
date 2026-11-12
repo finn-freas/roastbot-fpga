@@ -1,10 +1,8 @@
 # roastbot-fpga
 
-A chatbot that roasts you, running entirely on a $50 FPGA board (Sipeed Tang Nano 20K). I originally made a chatbot trained on my friend's texts, and after realizing how funny it was,
-I decided to make a bot that only roasts you (since my friend kind of does that anyway). I wrote the hardware to contain it on an fpga, so I can carry this little thing with me wherever I go! 
+A chatbot that roasts you, running entirely on a $50 FPGA board (Sipeed Tang Nano 20K). It was first built as a chatbot trained on one person's texts, and then reduced to a bot that only roasts the person talking to it. The hardware is written to hold the whole model on the FPGA, so the board works on its own.
 
-Yeah - I know its really mean. Don't take it personally.
-Still being improved upon!  :)
+The replies are deliberately rude.
 
 ```
 you> fuck you

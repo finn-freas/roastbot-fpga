@@ -23,9 +23,9 @@ There's no floating point on the FPGA, so everything is integer math. The tricky
 (softmax, normalizing, the sigmoid) use small lookup tables instead. `src/board.py` does the
 exact same math in Python, and the board has to match it bit for bit.
 
-## How I trained it
+## How it was trained
 
-1. **Teach it to talk.** First I trained a base model from scratch on a lot of everyday
+1. **Teach it to talk.** First a base model is trained from scratch on a lot of everyday
    conversation (the SODA dataset plus Reddit reply chains). This just teaches it English and
    how chats go back and forth.
 2. **Get a bigger model to write roasts.** A model this small can't learn roasting from a few
@@ -36,7 +36,7 @@ exact same math in Python, and the board has to match it bit for bit.
 3. **Throw out the bad ones.** The big model went back over every chat and scored whether the
    bot's lines actually made sense. The worst ones got dropped, along with copies of the
    examples and "your mom" lines that didn't come right after an insult.
-4. **Fine-tune.** Then the small model got trained on the roast chats (with a little normal
+4. **Fine-tune.** Then the small model is trained on the roast chats (with a little normal
    chat mixed in so it doesn't forget how to talk). It also learns from the big model's top
    guesses at each word, not just the one word that got written, which helps a lot at this
    size.
@@ -106,7 +106,7 @@ word table goes through the same unit with 8-bit weights, 8 per word.
 ### Running the SDRAM twice as fast
 
 The SDRAM bus is only 32 bits wide, but the matrix unit wants 64 bits every clock, so at 54 MHz
-it was sitting around half the time. So I run the SDRAM controller at 108 MHz, which is
+it was sitting around half the time. So the SDRAM controller runs at 108 MHz, which is
 exactly one 64-bit word per 54 MHz clock. The PLL makes both clocks from the board's 27 MHz
 oscillator. That took a reply from 7.6 s to 4.8 s, with the exact same replies.
 
