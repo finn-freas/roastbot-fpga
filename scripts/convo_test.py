@@ -1,3 +1,4 @@
+import math
 import sys
 from pathlib import Path
 
@@ -27,6 +28,8 @@ def parse_args(argv):
         elif k in ("repeat", "emoji"):
             try:
                 x = float(v)
+                if not math.isfinite(x):
+                    raise ValueError(v)
             except ValueError:
                 sys.exit(f"{k}= needs a number, got {v!r}")
             if k == "repeat":

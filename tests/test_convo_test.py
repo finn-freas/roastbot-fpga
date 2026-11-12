@@ -45,3 +45,10 @@ def test_bad_number(models):
     with pytest.raises(SystemExit) as e:
         ct.parse_args(["pr", "repeat=abc"])
     assert "repeat= needs a number" in str(e.value)
+
+
+@pytest.mark.parametrize("arg", ["repeat=nan", "emoji=inf", "emoji=-inf"])
+def test_non_finite_number(models, arg):
+    with pytest.raises(SystemExit) as e:
+        ct.parse_args(["pr", arg])
+    assert "needs a number" in str(e.value)
