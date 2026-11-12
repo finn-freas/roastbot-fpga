@@ -55,6 +55,13 @@ class Reply:
         return self.val
 
 
+def connect(*args):
+    try:
+        return Link(*args)
+    except ConnectionError as e:
+        sys.exit(str(e))
+
+
 class Link:
     def __init__(self, port=PORT, baud=BAUD):
         try:
@@ -332,7 +339,7 @@ def main():
     if cmd not in ("ping", "load") or len(sys.argv) > (3 if cmd == "load" else 2):
         sys.exit(USAGE)
     img = read_image(sys.argv) if cmd == "load" else None
-    link = Link()
+    link = connect()
     if cmd == "ping":
         print(link.ping())
     elif cmd == "load":

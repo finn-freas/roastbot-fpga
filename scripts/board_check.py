@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import chat
 import tok as T
-from link import Link
+from link import connect
 
 PROMPTS = ["how are you", "what are you doing", "did you eat yet", "lol ok", "you coming tonight?",
            "where are you", "want to get food later"]
@@ -32,7 +32,7 @@ def parse_args(argv):
 def main():
     key, best, argue = parse_args(sys.argv[1:])
     tok = T.load_chat()
-    link = Link()
+    link = connect()
     print("ping", link.ping())
     brd = chat.BoardPerson(key, link)
     cpu = chat.Person(key)

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from link import Link, checksum
+from link import checksum, connect
 
 
 USAGE = "usage: python scripts/sdram_diag.py [rounds [words]]  (rounds >= 0, words >= 4096)"
@@ -23,7 +23,7 @@ def parse_args(argv):
 
 def main():
     rounds, n = parse_args(sys.argv[1:])
-    lk = Link()
+    lk = connect()
     print("ping", lk.ping())
     lk.send(b"D")
     r = lk.recv(3)

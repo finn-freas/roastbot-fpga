@@ -263,3 +263,9 @@ def test_rng_copy_follows_sampled_steps():
         x ^= x >> 17
         x ^= (x << 5) & 0xFFFFFFFF
     assert lk.rng == x
+
+
+def test_connect_exits_with_message_when_port_missing(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        link.connect(str(tmp_path / "missing"))
+    assert "cannot open the serial port" in str(e.value)

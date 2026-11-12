@@ -679,9 +679,9 @@ def main():
         sys.exit("no model yet (models/pr_board.pkl)")
     link = None
     if "--board" in sys.argv:
-        from link import Link
+        from link import connect
         first = "pr"
-        link = Link()
+        link = connect()
         people = {first: BoardPerson(first, link)}
     else:
         people = {k: Person(k) for k in keys}
