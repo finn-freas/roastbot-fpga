@@ -292,3 +292,50 @@ def test_connect_exits_with_message_when_port_missing(tmp_path):
     with pytest.raises(SystemExit) as e:
         link.connect(str(tmp_path / "missing"))
     assert "cannot open the serial port" in str(e.value)
+
+
+@pytest.fixture
+def pty_link():
+    import os
+    master, slave = os.openpty()
+    lk = link.Link(port=os.ttyname(slave), baud=115200)
+    yield lk, master
+    os.close(lk.fd)
+    os.close(master)
+    os.close(slave)
+
+
+def test_link_over_a_serial_device_sends_bytes_unchanged(pty_link):
+    import os
+    lk, master = pty_link
+    payload = bytes(range(256))
+    lk.send(payload)
+    got = b""
+    while len(got) < len(payload):
+        got += os.read(master, 512)
+    assert got == payload
+
+
+def test_link_recv_returns_exactly_the_requested_bytes(pty_link):
+    import os
+    lk, master = pty_link
+    os.write(master, b"abcdef")
+    assert lk.recv(4) == b"abcd"
+    assert lk.recv(2) == b"ef"
+
+
+def test_link_recv_times_out_and_reports_the_bytes_seen(pty_link):
+    import os
+    lk, master = pty_link
+    os.write(master, b"xy")
+    with pytest.raises(TimeoutError, match="board sent 2 of 4 bytes: b'xy'"):
+        lk.recv(4, timeout=0.3)
+
+
+def test_link_drain_discards_pending_input(pty_link):
+    import os
+    lk, master = pty_link
+    os.write(master, b"stale")
+    lk.drain(quiet=0.1)
+    os.write(master, b"ok")
+    assert lk.recv(2) == b"ok"
