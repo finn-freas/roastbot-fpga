@@ -125,6 +125,29 @@ def test_best_flags_and_reply():
     assert lk.sent == b"Y\x03"
 
 
+def test_feed_reports_a_position_mismatch():
+    lk = FakeLink([b"a" + struct.pack("<H", 5)])
+    with pytest.raises(IOError, match="position 5"):
+        lk.post_feed(300, expect=6).value
+
+
+def test_feed_bad_reply_raises():
+    with pytest.raises(IOError, match="feed"):
+        FakeLink([b"zzz"]).feed(1)
+
+
+def test_best_bad_reply_raises():
+    with pytest.raises(IOError, match="best"):
+        FakeLink([b"z" + bytes(6)]).best()
+
+
+def test_jump_and_new_conversation_frames():
+    lk = FakeLink([b"j", b"z"])
+    lk.jump(300)
+    lk.new_conversation()
+    assert lk.sent == b"J" + struct.pack("<H", 300) + b"Z"
+
+
 def test_ack_mismatch_raises():
     with pytest.raises(IOError):
         FakeLink([b"x"]).init_engine()
