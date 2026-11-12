@@ -103,3 +103,42 @@ def test_check_args_accepts_reuse_or_nothing():
 def test_check_args_rejects_unknown_argument():
     with pytest.raises(SystemExit, match="unknown argument 'reuse'"):
         tok.check_args(["tok.py", "reuse"])
+
+
+def corpus_rows(n):
+    words = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike nov oscar papa quebec romeo".split()
+    rows = []
+    for i in range(n):
+        a = " ".join(words[(i + j) % len(words)] + str(i % 7) for j in range(4))
+        b = " ".join(words[(i * 3 + j) % len(words)] for j in range(5))
+        rows.append({"src": "soda" if i % 2 else "reddit", "turns": [[0, a], [1, b]]})
+    return rows
+
+
+def write_corpus(rows, name="train"):
+    (tok.CORPUS / f"{name}.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+
+def test_train_tokenizer_writes_a_vocab_with_the_reserved_ids(tiny, monkeypatch):
+    monkeypatch.setattr(tok, "VOCAB", 420)
+    write_corpus(corpus_rows(200))
+    t = tok.train_tokenizer()
+    assert t.get_vocab_size() == 420
+    assert [t.id_to_token(i) for i in range(4)] == ["<pad>", "<bos>", "<you>", "<him>"]
+    assert tok.load().get_vocab() == t.get_vocab()
+
+
+def test_main_with_reuse_encodes_both_splits_and_writes_info(tiny, monkeypatch, capsys):
+    rows = corpus_rows(30)
+    write_corpus(rows)
+    write_corpus(rows[:10], "val")
+    (tok.CORPUS / "stats.json").write_text(json.dumps({"soda_chars": 1000, "reddit_chars": 500}))
+    monkeypatch.setattr(sys, "argv", ["tok.py", "--reuse"])
+    tok.main()
+    info = json.loads((tok.TOK / "info.json").read_text())
+    assert set(info) == {"val", "train", "chars_per_token"}
+    assert info["train"]["tokens"] == np.fromfile(tok.TOK / "train.bin", np.uint16).size
+    assert info["val"]["tokens"] == np.fromfile(tok.TOK / "val.bin", np.uint16).size
+    assert info["train"]["dialogues"] == {"soda": 15, "reddit": 15}
+    assert info["chars_per_token"] == 1500 / info["train"]["tokens"]
+    assert "chars ->" in capsys.readouterr().out
