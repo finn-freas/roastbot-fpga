@@ -189,3 +189,25 @@ def test_cut_zero_is_accepted(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "cutoff: only words within 0.0" in out
     assert "not a valid value" not in out
+
+
+def test_board_file_returns_existing_pickle_untouched(tmp_path):
+    f = tmp_path / "pr_board.pkl"
+    f.write_bytes(b"keep")
+    (tmp_path / "pr_board.pkl.xz").write_bytes(b"not xz")
+    assert C.board_file(tmp_path, "pr") == f
+    assert f.read_bytes() == b"keep"
+
+
+def test_board_file_unpacks_the_compressed_copy(tmp_path):
+    import lzma
+    (tmp_path / "pr_board.pkl.xz").write_bytes(lzma.compress(b"payload"))
+    f = C.board_file(tmp_path, "pr")
+    assert f == tmp_path / "pr_board.pkl"
+    assert f.read_bytes() == b"payload"
+
+
+def test_board_file_missing_model_creates_nothing(tmp_path):
+    f = C.board_file(tmp_path, "pr")
+    assert not f.exists()
+    assert list(tmp_path.iterdir()) == []
