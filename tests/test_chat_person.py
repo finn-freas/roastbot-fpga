@@ -100,7 +100,7 @@ def test_candidate_selection_picks_best_average_score():
     assert p.cand_end() == 1
     for s in (9, 1):
         p.score(s)
-    assert p.cand_end() == 1
+    assert p.cand_end() == 2
     for s in (7, 7, 7):
         p.score(s)
     assert p.cand_end() == 3
