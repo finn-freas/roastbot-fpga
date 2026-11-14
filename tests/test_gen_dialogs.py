@@ -1,0 +1,78 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts import gen_dialogs as g
+
+
+def convo(*lines):
+    return "\n".join(lines)
+
+
+GOOD = convo("F: yo what is up", "B: nothing much and you", "F: just bored", "B: of course you are", "F: ok", "B: ok then")
+
+
+def test_parse_reads_alternating_turns():
+    turns = g.parse(GOOD)
+    assert turns[0] == [0, "yo what is up"]
+    assert [s for s, _ in turns] == [0, 1, 0, 1, 0, 1]
+
+
+def test_parse_strips_bold_markers_and_quotes():
+    turns = g.parse(convo("**F**: \"hello there\"", "**B**: hi", "F: x", "B: y", "F: z", "B: w"))
+    assert turns[0] == [0, "hello there"]
+    assert turns[1] == [1, "hi"]
+
+
+def test_parse_ignores_non_dialogue_lines():
+    turns = g.parse("Sure, here it is:\n" + GOOD + "\nthe end")
+    assert len(turns) == 6
+
+
+def test_parse_requires_three_bot_lines():
+    assert g.parse(convo("F: a", "B: b", "F: c", "B: d")) is None
+
+
+def test_parse_requires_f_to_start():
+    assert g.parse(convo("B: a", "F: b", "B: c", "F: d", "B: e", "F: f", "B: g")) is None
+
+
+def test_parse_rejects_long_lines():
+    long = " ".join(["word"] * 26)
+    assert g.parse(GOOD + "\nF: " + long) is None
+
+
+def test_parse_rejects_blocked_content():
+    assert g.parse(GOOD.replace("of course you are", "you should kys")) is None
+    assert g.parse(GOOD.replace("ok then", "that is suicidal")) is None
+
+
+def test_stock_lines_counts_bot_turns_only():
+    turns = [[0, "who asked"], [1, "who asked lol"], [1, "skill issue"]]
+    assert g.stock_lines(turns) == 2
+    assert g.stock_lines(turns, ("skill issue",)) == 1
+
+
+def test_parse_rejects_repeated_stock_lines():
+    text = GOOD.replace("of course you are", "who asked").replace("ok then", "ur cooked")
+    assert g.parse(text) is None
+
+
+def test_mom_lines_and_mom_mode():
+    base = GOOD.replace("ok then", "your mom said otherwise")
+    assert g.parse(base) is not None
+    assert g.parse(base, mom=True) is not None
+    assert g.parse(GOOD, mom=True) is None
+    two = base.replace("of course you are", "your mom too")
+    assert g.parse(two, mom=True) is None
+
+
+def test_mom_mode_rejects_yo_mama_jokes():
+    text = GOOD.replace("ok then", "your mom is so slow")
+    assert g.parse(text, mom=True) is None
+
+
+def test_i_had_pattern_rejected_in_mode_three():
+    text = convo("F: fuck you", "B: i had your mom last night", "F: a", "B: b", "F: c", "B: d")
+    assert g.parse(text, mom=True, strict=3) is None
