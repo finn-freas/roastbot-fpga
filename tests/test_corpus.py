@@ -1,3 +1,4 @@
+import json
 import random
 import sys
 from pathlib import Path
@@ -114,3 +115,26 @@ def test_reddit_respects_max_len(tmp_path):
     write_reddit(p, rows)
     out = list(corpus.reddit_chains(str(p), max_len=4))
     assert len(out) == 1 and len(out[0]["turns"]) == 4
+
+
+def test_main_writes_split_files_and_stats(tmp_path, monkeypatch):
+    raw, out = tmp_path / "raw", tmp_path / "corpus"
+    (raw / "soda").mkdir(parents=True)
+    (raw / "reddit").mkdir()
+    write_soda(raw / "soda" / "train.parquet", [(["Hi", "Hello"], ["A", "B"])] * 3)
+    write_soda(raw / "soda" / "valid.parquet", [(["Yo", "Sup"], ["A", "B"])])
+    write_reddit(raw / "reddit" / "one.parquet", [
+        ("a", "t3_post", "u1", "first"),
+        ("b", "t1_a", "u2", "second"),
+    ])
+    monkeypatch.setattr(corpus, "RAW", raw)
+    monkeypatch.setattr(corpus, "OUT", out)
+    corpus.main()
+    rows = []
+    for name in ("train.jsonl", "val.jsonl"):
+        rows += [json.loads(line) for line in (out / name).read_text().splitlines()]
+    assert sorted(r["src"] for r in rows) == ["reddit", "soda", "soda", "soda", "soda"]
+    stats = json.loads((out / "stats.json").read_text())
+    assert stats["soda_dialogues"] == 4
+    assert stats["reddit_dialogues"] == 1
+    assert stats["reddit_chars"] == len("first") + len("second")
