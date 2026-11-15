@@ -46,3 +46,41 @@ def test_key_defaults_to_the_file_name_prefix(tmp_path, monkeypatch):
     monkeypatch.setattr(kv8_add, "ROOT", tmp_path)
     assert kv8_add.parse_args([str(src), str(tmp_path / "out")]) == (src, tmp_path / "out", "zz")
     assert kv8_add.parse_args([str(src), str(tmp_path / "out"), "zz"])[2] == "zz"
+
+
+def test_main_calibrates_writes_model_and_links_companions(tmp_path, monkeypatch, capsys):
+    import pickle
+    from types import SimpleNamespace
+
+    src_dir = tmp_path / "models"
+    src_dir.mkdir()
+    src = src_dir / "zz_board.pkl"
+    src.write_bytes(pickle.dumps({"cfg": SimpleNamespace(n_layers=3)}))
+    (src_dir / "zz_extra.npy").write_bytes(b"x")
+    (src_dir / "generic_unigram.npy").write_bytes(b"u")
+    (src_dir / "other_board.pkl").write_bytes(b"o")
+    data = tmp_path / "data" / "people" / "zz"
+    data.mkdir(parents=True)
+    (data / "train.jsonl").write_text("")
+    out = tmp_path / "out"
+    seen = {}
+
+    def calibrate(p, ids):
+        seen["ids"] = ids
+        p["kv8"] = [1, 2, 3]
+
+    monkeypatch.setattr(kv8_add, "ROOT", tmp_path)
+    monkeypatch.setattr(kv8_add.T, "load_chat", lambda: "tok")
+    monkeypatch.setattr(kv8_add, "encode_sessions", lambda t, path: [([i], [i]) for i in range(60)])
+    monkeypatch.setattr(kv8_add.B, "kv8_calibrate", calibrate)
+    monkeypatch.setattr(kv8_add.P, "build", lambda p: (b"img", None))
+    monkeypatch.setattr(kv8_add.P, "memory_report", lambda img: "report")
+    monkeypatch.setattr(sys, "argv", ["kv8_add.py", str(src), str(out)])
+    kv8_add.main()
+    assert len(seen["ids"]) == 48
+    assert pickle.loads((out / "zz_board.pkl").read_bytes())["kv8"] == [1, 2, 3]
+    assert (out / "zz_extra.npy").is_symlink()
+    assert (out / "generic_unigram.npy").is_symlink()
+    assert not (out / "other_board.pkl").exists()
+    text = capsys.readouterr().out
+    assert "3 layers, kv8 shifts [1, 2, 3]" in text and "report" in text
