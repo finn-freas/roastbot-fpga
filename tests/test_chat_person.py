@@ -137,3 +137,56 @@ def test_emoji_gain_grows_when_behind_and_stays_in_bounds():
     assert C.EMOJI_GAIN_MIN <= high <= C.EMOJI_GAIN_MAX
     assert high > low
     assert math.isfinite(high)
+
+
+def repeat_person(monkeypatch, said, common=()):
+    mask = np.zeros(T.VOCAB, bool)
+    mask[7] = True
+    monkeypatch.setattr(C, "EMOJI", mask)
+    p = person()
+    p.w_base = np.zeros(T.VOCAB, np.int64)
+    p.w_q = p.w_base.copy()
+    p.common = set(common)
+    p.said = said
+    p.pushed = None
+    p.push_table = lambda changed: setattr(p, "pushed", changed.tolist())
+    return p
+
+
+def test_repeat_table_penalises_recent_tokens_by_age(monkeypatch):
+    p = repeat_person(monkeypatch, [[10], [11]])
+    p.repeat_table()
+    q = math.log2(math.e) * 256
+    assert p.w_q[11] == -round(q * 1.0 * C.REPEAT["pr"])
+    assert p.w_q[10] == -round(q * (C.REPEAT_N - 1) / C.REPEAT_N * C.REPEAT["pr"])
+    assert p.pushed == [10, 11]
+
+
+def test_repeat_table_spares_common_special_and_unseen_tokens(monkeypatch):
+    p = repeat_person(monkeypatch, [[2, 3, 20, 30]], common={20})
+    p.repeat_table()
+    assert p.w_q[[2, 3, 20, 30]].tolist()[:3] == [0, 0, 0]
+    assert p.w_q[30] < 0
+    assert p.pushed == [30]
+
+
+def test_repeat_table_uses_the_emoji_penalty_and_clips(monkeypatch):
+    p = repeat_person(monkeypatch, [[7]])
+    p.w_base[7] = -32000
+    p.repeat_table()
+    assert p.w_q[7] == -32768
+
+
+def test_repeat_table_forgets_tokens_older_than_the_window(monkeypatch):
+    p = repeat_person(monkeypatch, [[40]] + [[50]] * C.REPEAT_N)
+    p.repeat_table()
+    assert p.w_q[40] == 0
+    assert p.w_q[50] < 0
+
+
+def test_repeat_table_restores_base_when_nothing_was_said(monkeypatch):
+    p = repeat_person(monkeypatch, [])
+    p.w_q[5] = -9
+    p.repeat_table()
+    assert p.w_q[5] == 0
+    assert p.pushed == [5]
