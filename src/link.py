@@ -69,13 +69,17 @@ class Link:
         except OSError as e:
             raise ConnectionError(f"cannot open the serial port {port}: {e.strerror}; "
                                   "check that the board is plugged in and no other program is using the port") from e
-        a = termios.tcgetattr(self.fd)
-        a[0] = a[1] = a[3] = 0
-        a[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-        a[4] = a[5] = getattr(termios, f"B{baud}")
-        a[6][termios.VMIN], a[6][termios.VTIME] = 0, 1
-        termios.tcsetattr(self.fd, termios.TCSANOW, a)
-        termios.tcflush(self.fd, termios.TCIOFLUSH)
+        try:
+            a = termios.tcgetattr(self.fd)
+            a[0] = a[1] = a[3] = 0
+            a[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+            a[4] = a[5] = getattr(termios, f"B{baud}")
+            a[6][termios.VMIN], a[6][termios.VTIME] = 0, 1
+            termios.tcsetattr(self.fd, termios.TCSANOW, a)
+            termios.tcflush(self.fd, termios.TCIOFLUSH)
+        except termios.error as e:
+            os.close(self.fd)
+            raise ConnectionError(f"{port} is not a serial port: {e.args[1] if len(e.args) > 1 else e}") from e
         self.drain()
         self.pending = []
         self.rng = None

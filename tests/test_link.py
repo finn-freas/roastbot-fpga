@@ -339,3 +339,13 @@ def test_link_drain_discards_pending_input(pty_link):
     lk.drain(quiet=0.1)
     os.write(master, b"ok")
     assert lk.recv(2) == b"ok"
+
+
+def test_a_file_that_is_not_a_serial_port_gives_clear_error(tmp_path):
+    path = tmp_path / "plain"
+    path.write_bytes(b"")
+    with pytest.raises(ConnectionError, match="is not a serial port"):
+        link.Link(str(path))
+    with pytest.raises(SystemExit) as e:
+        link.connect(str(path))
+    assert "is not a serial port" in str(e.value)
