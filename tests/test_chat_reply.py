@@ -106,3 +106,74 @@ def test_reply_without_emoji_gain_never_emits_emoji():
     texts, _, _ = run(p, emoji=0.0)
     assert p.bot_emoji == 0
     assert not any(C.EMOJI[t] for t in p.hist[5:])
+
+
+class ChainModel:
+    def __init__(self, nxt):
+        self.nxt = nxt
+
+    def reset(self):
+        pass
+
+    def forward(self, t, pos, base=0):
+        lg = np.zeros(T.VOCAB, np.int64)
+        lg[self.nxt.get(t, T.YOU)] = 1 << 12
+        return lg
+
+
+class WordTok(FakeTok):
+    def __init__(self, words):
+        self.words = words
+
+    def decode(self, toks):
+        return " ".join(self.words.get(t, f"w{t}") for t in toks)
+
+
+def chain_person(nxt):
+    p = person(5, [T.YOU])
+    p.m = ChainModel(nxt)
+    p.mmi = False
+    p.w_q = np.zeros(T.VOCAB, np.int64)
+    p.w_base = p.w_q.copy()
+    p.p["score_w"] = p.w_q
+    p.common = set()
+    p.reset()
+    return p
+
+
+def best(p, tok=None, text="hello there", n_best=2, budget=60):
+    return C.reply_best(p, tok or FakeTok(), text, 1.0, 0.0, C.make_rng(1), emoji=0.0, n_best=n_best, budget=budget)
+
+
+def test_reply_best_returns_the_chain_and_records_state():
+    p = chain_person({T.HIM: W[0], W[0]: W[1], W[1]: T.HIM})
+    p.m.nxt[W[1]] = T.YOU
+    texts, used, win = best(p)
+    assert texts == [f"w{W[0]} w{W[1]}"]
+    assert 0 <= win < 2 + C.BEST_EXTRA
+    assert used >= 3
+    assert p.said == [[W[0], W[1]]]
+    assert p.bot_msgs == 1 and p.bot_emoji == 0
+    assert p.hist[:2] == [T.BOS, T.YOU]
+    assert p.hist[-3:] == [T.HIM, W[0], W[1]]
+    assert len(p.last_cands) >= 2 and all(ok for _, ok in p.last_cands)
+
+
+def test_reply_best_stops_candidates_at_the_budget():
+    p = chain_person({T.HIM: W[0], W[0]: W[0]})
+    texts, used, win = best(p, n_best=3, budget=10)
+    assert used <= 10 + C.BEST_EXTRA_BUDGET + 1
+    assert not p.last_cands[0][1]
+
+
+def test_reply_best_keeps_the_first_candidate_when_none_is_good():
+    p = chain_person({T.HIM: W[0], W[0]: W[1], W[1]: T.YOU})
+    texts, used, win = best(p, WordTok({W[1]: "kys"}))
+    assert win == 0
+    assert p.said == [[W[0], W[1]]]
+
+
+def test_reply_best_without_a_cap_hits_max_reply():
+    p = chain_person({T.HIM: W[0], W[0]: W[0]})
+    texts, used, win = best(p, n_best=1, budget=1000)
+    assert len(texts[0].split()) == C.MAX_REPLY
