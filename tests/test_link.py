@@ -349,3 +349,79 @@ def test_a_file_that_is_not_a_serial_port_gives_clear_error(tmp_path):
     with pytest.raises(SystemExit) as e:
         link.connect(str(path))
     assert "is not a serial port" in str(e.value)
+
+
+def test_checksum_command_reads_a_word():
+    lk = FakeLink([struct.pack("<I", 0xDEADBEEF)])
+    assert lk.checksum(3, 4) == 0xDEADBEEF
+    assert lk.sent == link.Link._hdr(b"C", 3, 4)
+
+
+def test_write_bytes_reports_the_word_that_was_not_acknowledged():
+    lk = FakeLink([b"w", b"?"])
+    data = bytes(8 * (link.CHUNK + 1))
+    with pytest.raises(IOError, match="not acknowledged"):
+        lk.write_bytes(0, data)
+
+
+def test_write_bytes_reports_progress():
+    lk = FakeLink([b"w"])
+    seen = []
+    lk.write_bytes(0, bytes(16), progress=lambda done, total: seen.append((done, total)))
+    assert seen == [(2, 2)]
+
+
+def test_settings_requires_ack():
+    with pytest.raises(IOError):
+        FakeLink([b"?"]).settings(1, 2, 3)
+
+
+def test_post_settings_bad_ack_raises_when_collected():
+    lk = FakeLink([b"?"])
+    r = lk.post_settings(1, 2, 3)
+    with pytest.raises(IOError):
+        r.value
+
+
+def test_post_settings_clamps_gain():
+    lk = FakeLink([b"g"])
+    lk.post_settings(1, 2, 0x12345).value
+    assert lk.sent == b"G" + struct.pack("<HHH", 1, 2, 0xFFFF)
+
+
+def test_post_is_refused_while_a_run_is_going():
+    lk = FakeLink([b"e"])
+    lk.start_run(3, 4)
+    with pytest.raises(IOError, match="still going"):
+        lk.post_jump(1)
+
+
+def test_start_run_is_refused_while_another_run_is_going():
+    lk = FakeLink([b"e"])
+    lk.start_run(3, 4)
+    with pytest.raises(IOError, match="still going"):
+        lk.start_run(3, 4)
+
+
+def test_start_run_collects_pending_long_replies_first():
+    lk = FakeLink([step_reply(7), b"e"])
+    r = lk.post_f(1, 3)
+    lk.start_run(2, 4)
+    assert r.done and r.value[0] == 7
+    assert lk.sent == struct.pack("<cBHH", b"F", 1, 3, 0) + struct.pack("<cBHH", b"F", 5, 2, 4)
+
+
+def test_send_collects_pending_replies_before_writing():
+    lk = FakeLink([b"j"])
+    r = lk.post_jump(1)
+    lk.send(b"P")
+    assert r.done
+    assert lk.sent == b"J\x01\x00P"
+
+
+def test_sync_reports_a_run_that_went_on_past_the_host():
+    lk = FakeLink([step_reply(1), step_reply(2), b"e"])
+    lk.start_run(3, 40)
+    lk.run.stop = lambda: [1]
+    with pytest.raises(IOError, match="went on past"):
+        lk.sync()
