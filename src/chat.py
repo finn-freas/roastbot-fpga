@@ -14,8 +14,8 @@ import tok as T
 from engine import CLK_HZ, token_cycles
 
 ROOT = Path(__file__).resolve().parent.parent
-HELP = ("/reset, /temp 0.6, /cut 4, /seed 7 or /seed random, /emoji 0.5 (0.5 = the usual amount, higher = more), "
-        "/best 6 (candidates per reply, 1 = off), /info, /quit")
+HELP = ("/reset, /temp 0.6 or /temp auto, /cut 4, /seed 7 or /seed random, /emoji 0.5 (0.5 = the usual amount, higher = more), "
+        "/best 6 or /best auto (candidates per reply, 1 = off), /info, /quit")
 MODELS = Path(os.environ.get("FB_MODELS", ROOT / "models"))
 MAX_REPLY = 80
 BEST_N = 6
