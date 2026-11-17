@@ -76,3 +76,17 @@ def test_mom_mode_rejects_yo_mama_jokes():
 def test_i_had_pattern_rejected_in_mode_three():
     text = convo("F: fuck you", "B: i had your mom last night", "F: a", "B: b", "F: c", "B: d")
     assert g.parse(text, mom=True, strict=3) is None
+
+
+def test_parse_args_defaults_and_modes():
+    assert g.parse_args([]) == (1500, ["topic"], 24)
+    assert g.parse_args(["10", "both", "batch=4"]) == (10, ["topic", "argue"], 4)
+    assert g.parse_args(["5", "mom3"]) == (5, ["mom3"], 24)
+
+
+def test_parse_args_rejects_bad_input():
+    import pytest
+
+    for argv in (["x"], ["0"], ["5", "mon"], ["5", "batch=x"], ["5", "batch=0"], ["1", "mom", "batch=2", "extra"]):
+        with pytest.raises(SystemExit):
+            g.parse_args(argv)

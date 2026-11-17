@@ -129,13 +129,41 @@ def parse(text, mom=False, strict=False):
     return turns
 
 
-def main():
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
-    flags = sys.argv[2:]
+USAGE = "usage: gen_dialogs.py [N [both|argue|mom|mom2|mom3] [batch=B]]"
+MODE_FLAGS = ("both", "argue", "mom", "mom2", "mom3")
+
+
+def parse_args(argv):
+    if len(argv) > 3:
+        sys.exit(USAGE)
+    n = 1500
+    if argv:
+        try:
+            n = int(argv[0])
+        except ValueError:
+            sys.exit(f"N must be a whole number, got {argv[0]!r}\n{USAGE}")
+    if n < 1:
+        sys.exit(f"N must be at least 1\n{USAGE}")
+    flags = argv[1:]
+    B = 24
+    for a in flags:
+        if a.startswith("batch="):
+            try:
+                B = int(a[6:])
+            except ValueError:
+                sys.exit(f"batch must be a whole number, got {a[6:]!r}\n{USAGE}")
+            if B < 1:
+                sys.exit(f"batch must be at least 1\n{USAGE}")
+        elif a not in MODE_FLAGS:
+            sys.exit(f"unknown argument {a!r}\n{USAGE}")
     modes = (["topic", "argue"] if "both" in flags else ["argue"] if "argue" in flags else ["mom2"] if "mom2" in flags
              else ["mom3"] if "mom3" in flags else ["mom"] if "mom" in flags
              else ["topic"])
-    B = next((int(a[6:]) for a in flags if a.startswith("batch=")), 24)
+    return n, modes, B
+
+
+def main():
+    n, modes, B = parse_args(sys.argv[1:])
     bank = json.loads((ROOT / "data" / "style" / "roast_bank.json").read_text())
     tiktok = [x for x in style_lines() if len(x.split()) <= 15]
     tok, net = q4(WRITER)
