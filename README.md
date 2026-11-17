@@ -41,6 +41,20 @@ with `--seed <number>`. To build the bitstream yourself, run `scripts/build_boar
 placement seed places, so try a few (`SEED=6 scripts/build_board.sh`), and check the SDRAM
 timing on the board with `scripts/sdram_diag.py` before you trust it.
 
+## Checking the board
+
+`link.py`, `chat.py --board` and the board scripts open the Tang Nano 20K's second USB serial port at 1,000,000 baud. The port is the `/dev/serial/by-id/*SIPEED*if01*` device when one exists and `/dev/ttyUSB1` otherwise. If the port cannot be opened, the tools print the reason and exit.
+
+```bash
+python src/link.py ping                          # print the link version and SDRAM status
+python src/pack.py models/pr_board.pkl           # write models/pr_board.sdram.bin
+python src/link.py load models/pr_board.pkl      # upload that image and verify its checksum
+python scripts/board_check.py [model] [--best] [--argue]   # compare board replies with the CPU
+python scripts/sdram_diag.py [rounds [words]]    # SDRAM read/write test (default 20 rounds, 65536 words)
+```
+
+`chat.py --board` uploads the model itself when the board does not hold it. `FB_MODELS` points the chat tools at another models directory.
+
 ## What's in here
 
 | Folder | What it has |
