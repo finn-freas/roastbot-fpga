@@ -68,3 +68,52 @@ def test_better_compares_by_cross_multiplication():
     assert B.better(3, 2, 1, 1)
     assert not B.better(1, 2, 1, 1)
     assert not B.better(1, 1, 1, 1)
+
+
+def test_class_mass_of_the_top_token_is_full_scale_and_totals_all_classes():
+    exp2 = B.exp2_table()
+    logits = np.array([0, 256, 0, 0, 0, 0, 0, 0])
+    mask = np.zeros(8, bool)
+    mask[1] = True
+    em, total = B.class_mass(logits, mask, 0, exp2)
+    assert em == int(exp2[0]) << B.MASS_BITS
+    assert total >= em
+    em_all, total_all = B.class_mass(logits, np.ones(8, bool), 0, exp2)
+    assert em_all == total_all == total
+
+
+def test_class_mass_drops_tokens_far_below_the_maximum():
+    exp2 = B.exp2_table()
+    logits = np.array([0, 1 << 20])
+    em, total = B.class_mass(logits, np.array([True, False]), 0, exp2)
+    assert em == 0 and total > 0
+
+
+def test_token_score_prefers_the_top_token_and_adds_the_bonus():
+    logits = np.array([0, 100, 400, 0, 0])
+    w = np.zeros(5, np.int64)
+    top = B.token_score(logits, 2, 0, 1 << 16, w)
+    low = B.token_score(logits, 1, 0, 1 << 16, w)
+    assert top > low
+    w[1] = 50
+    assert B.token_score(logits, 1, 0, 1 << 16, w) == low + 50
+
+
+def test_score_table_without_files_is_zero_apart_from_extra(tmp_path):
+    w = B.score_table(tmp_path, "pr", 8, extra={5: 1.0})
+    assert w.dtype == np.int64
+    assert w[5] == round(np.log2(np.e) * 256)
+    assert not np.delete(w, 5).any()
+
+
+def test_score_table_combines_unigram_voice_and_clips(tmp_path):
+    import json
+    uni = np.full(8, 0.5)
+    np.save(tmp_path / "generic_unigram.npy", uni)
+    (tmp_path / "pr_voice.json").write_text(json.dumps({"bonus": [[6, 2.0], [0, 9.0]]}))
+    w = B.score_table(tmp_path, "pr", 8, lam=0.5, alpha=2.0, extra={7: 1e9})
+    base = round(-2.0 * np.log(0.5) * np.log2(np.e) * 256)
+    assert w[5] == base
+    assert w[6] == round((-2.0 * np.log(0.5) + 1.0) * np.log2(np.e) * 256)
+    assert not w[:4].any()
+    assert w[7] == 32767
