@@ -142,3 +142,21 @@ def test_main_with_reuse_encodes_both_splits_and_writes_info(tiny, monkeypatch, 
     assert info["train"]["dialogues"] == {"soda": 15, "reddit": 15}
     assert info["chars_per_token"] == 1500 / info["train"]["tokens"]
     assert "chars ->" in capsys.readouterr().out
+
+
+def test_main_names_a_missing_corpus_file_before_touching_the_tokenizer(tiny, monkeypatch):
+    write_corpus(corpus_rows(5))
+    monkeypatch.setattr(sys, "argv", ["tok.py"])
+    with pytest.raises(SystemExit, match="val.jsonl not found; build the corpus with corpus.py first"):
+        tok.main()
+    assert not (tok.TOK / "train.bin").exists()
+
+
+def test_main_with_reuse_names_a_missing_tokenizer(tiny, monkeypatch):
+    for name in ("train", "val"):
+        write_corpus(corpus_rows(5), name)
+    (tok.CORPUS / "stats.json").write_text("{}")
+    (tok.TOK / "tokenizer.json").unlink()
+    monkeypatch.setattr(sys, "argv", ["tok.py", "--reuse"])
+    with pytest.raises(SystemExit, match="tokenizer.json not found; run tok.py without --reuse"):
+        tok.main()

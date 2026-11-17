@@ -113,8 +113,19 @@ def check_args(argv):
         sys.exit(f"unknown argument {extra[0]!r}; usage: tok.py [--reuse]")
 
 
+def check_inputs(reuse):
+    need = ["train.jsonl", "val.jsonl", "stats.json"]
+    missing = [CORPUS / n for n in need if not (CORPUS / n).is_file()]
+    if reuse and not (TOK / "tokenizer.json").is_file():
+        missing.append(TOK / "tokenizer.json")
+    if missing:
+        sys.exit(f"{missing[0]} not found; build the corpus with corpus.py first" if missing[0].parent == CORPUS
+                 else f"{missing[0]} not found; run tok.py without --reuse to train it")
+
+
 def main():
     check_args(sys.argv)
+    check_inputs("--reuse" in sys.argv)
     tok = train_tokenizer() if "--reuse" not in sys.argv else load()
     rng = np.random.default_rng(0)
     info = {}
