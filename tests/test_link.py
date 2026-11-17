@@ -51,6 +51,19 @@ def test_ping_decodes_flags():
     assert lk.sent == b"P"
 
 
+def test_ping_retries_after_a_bad_reply():
+    lk = FakeLink([b"xyz", b"K\x03\x02"])
+    assert lk.ping() == {"version": 3, "sdram_ready": False, "cal_err": True}
+    assert lk.sent == b"PP"
+
+
+def test_ping_with_one_try_does_not_retry():
+    lk = FakeLink([b"xyz", b"K\x03\x02"])
+    with pytest.raises(IOError, match="bad ping reply"):
+        lk.ping(tries=1)
+    assert lk.sent == b"P"
+
+
 def test_ping_bad_reply_raises():
     lk = FakeLink([b"xyz", b"xyz"])
     with pytest.raises(IOError):
