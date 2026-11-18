@@ -438,3 +438,25 @@ def test_sync_reports_a_run_that_went_on_past_the_host():
     lk.run.stop = lambda: [1]
     with pytest.raises(IOError, match="went on past"):
         lk.sync()
+
+
+def test_read_image_adds_the_sdram_suffix(tmp_path):
+    (tmp_path / "pr_board.sdram.bin").write_bytes(b"\x01\x02\x03")
+    assert link.read_image(["link.py", "load", str(tmp_path / "pr_board")]) == b"\x01\x02\x03"
+
+
+def test_read_image_replaces_an_existing_suffix(tmp_path):
+    (tmp_path / "pr_board.sdram.bin").write_bytes(b"\x09")
+    assert link.read_image(["link.py", "load", str(tmp_path / "pr_board.pt")]) == b"\x09"
+
+
+def test_read_image_reports_a_missing_image(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        link.read_image(["link.py", "load", str(tmp_path / "none")])
+    assert "pack.py" in str(e.value)
+
+
+def test_read_image_needs_a_model_argument():
+    with pytest.raises(SystemExit) as e:
+        link.read_image(["link.py", "load"])
+    assert str(e.value) == link.USAGE
