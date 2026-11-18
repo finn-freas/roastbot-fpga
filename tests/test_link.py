@@ -460,3 +460,31 @@ def test_read_image_needs_a_model_argument():
     with pytest.raises(SystemExit) as e:
         link.read_image(["link.py", "load"])
     assert str(e.value) == link.USAGE
+
+
+def xorshift32(x):
+    x ^= (x << 13) & 0xFFFFFFFF
+    x ^= x >> 17
+    x ^= (x << 5) & 0xFFFFFFFF
+    return x
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 7, 100])
+def test_xs_matrix_jumps_the_generator_n_steps(n):
+    seed = 0x2545F491
+    expect = seed
+    for _ in range(n):
+        expect = xorshift32(expect)
+    assert link._xs_apply(link._xs_matrix(n), seed) == expect
+
+
+def test_xs_step_matches_draws_per_step_iterations():
+    seed = 0xDEADBEEF
+    expect = seed
+    for _ in range(link.DRAWS_PER_STEP):
+        expect = xorshift32(expect)
+    assert link._xs_apply(link.XS_STEP, seed) == expect
+
+
+def test_xs_apply_of_zero_is_zero():
+    assert link._xs_apply(link.XS_STEP, 0) == 0
