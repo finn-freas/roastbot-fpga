@@ -211,3 +211,15 @@ def test_board_file_missing_model_creates_nothing(tmp_path):
     f = C.board_file(tmp_path, "pr")
     assert not f.exists()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_emoji_mask_marks_slot_tokens_and_skips_modifiers(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(T, "TOK", tmp_path)
+    assert not C.emoji_mask().any()
+    slots = [[10, "\U0001F600", 5], [11, "️", 5], [12, "\U0001F3FD", 5], [13, "❤", 5]]
+    (tmp_path / "slots.json").write_text(json.dumps(slots))
+    mask = C.emoji_mask()
+    assert mask.shape == (T.VOCAB,)
+    assert sorted(mask.nonzero()[0].tolist()) == [10, 13]
