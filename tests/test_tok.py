@@ -160,3 +160,33 @@ def test_main_with_reuse_names_a_missing_tokenizer(tiny, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["tok.py", "--reuse"])
     with pytest.raises(SystemExit, match="tokenizer.json not found; run tok.py without --reuse"):
         tok.main()
+
+
+@pytest.fixture
+def dirs(tmp_path, monkeypatch):
+    (tmp_path / "tok").mkdir()
+    (tmp_path / "corpus").mkdir()
+    monkeypatch.setattr(tok, "TOK", tmp_path / "tok")
+    monkeypatch.setattr(tok, "CORPUS", tmp_path / "corpus")
+    return tmp_path
+
+
+def test_check_inputs_names_the_first_missing_corpus_file(dirs):
+    with pytest.raises(SystemExit, match=r"train\.jsonl not found; build the corpus with corpus\.py first"):
+        tok.check_inputs(False)
+    (dirs / "corpus" / "train.jsonl").write_text("")
+    with pytest.raises(SystemExit, match=r"val\.jsonl not found"):
+        tok.check_inputs(False)
+    (dirs / "corpus" / "val.jsonl").write_text("")
+    with pytest.raises(SystemExit, match=r"stats\.json not found"):
+        tok.check_inputs(False)
+
+
+def test_check_inputs_requires_a_tokenizer_only_when_reusing(dirs):
+    for n in ["train.jsonl", "val.jsonl", "stats.json"]:
+        (dirs / "corpus" / n).write_text("")
+    tok.check_inputs(False)
+    with pytest.raises(SystemExit, match=r"tokenizer\.json not found; run tok\.py without --reuse"):
+        tok.check_inputs(True)
+    (dirs / "tok" / "tokenizer.json").write_text("{}")
+    tok.check_inputs(True)
