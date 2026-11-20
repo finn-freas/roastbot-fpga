@@ -78,3 +78,17 @@ def test_main_runs_a_packed_model_and_checks_the_token_count(tiny, tmp_path, mon
     monkeypatch.setattr(sys, "argv", ["engine.py", str(tmp_path / "none.pkl")])
     with pytest.raises(SystemExit, match="no such model file"):
         E.main()
+
+
+def test_kv_addr_lays_out_keys_and_values_per_layer(tiny):
+    p, _ = tiny
+    img, _ = P.build(p)
+    eng = E.Engine(img.bytes())
+    stride = eng.seq * eng.kvw
+    assert eng.kv_addr(0, 0) == eng.kv_base
+    assert eng.kv_addr(0, 1) == eng.kv_base + stride
+    assert eng.kv_addr(1, 0) == eng.kv_base + 2 * stride
+    assert eng.kv_addr(eng.layers - 1, 1) + stride == eng.kv_base + eng.layers * 2 * stride
+    assert eng.kv_base == img.sym["kv"][0]
+    assert eng.layers * 2 * stride <= img.sym["kv"][1]
+    assert len(eng.w) >= eng.kv_base + eng.layers * 2 * stride
