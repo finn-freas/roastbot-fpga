@@ -488,3 +488,54 @@ def test_xs_step_matches_draws_per_step_iterations():
 
 def test_xs_apply_of_zero_is_zero():
     assert link._xs_apply(link.XS_STEP, 0) == 0
+
+
+def test_post_seed_records_the_masked_state_only_once_acknowledged():
+    lk = FakeLink([b"s"])
+    r = lk.post_seed(2 ** 32 + 7)
+    assert lk.rng is None
+    r.value
+    assert lk.rng == 7
+    assert lk.sent == b"S" + struct.pack("<I", 7)
+
+
+def test_post_seed_leaves_the_state_alone_on_a_bad_ack():
+    lk = FakeLink([b"?"])
+    r = lk.post_seed(7)
+    with pytest.raises(IOError):
+        r.value
+    assert lk.rng is None
+
+
+def test_post_best_runs_the_check_on_the_decoded_reply():
+    seen = []
+    lk = FakeLink([b"y" + bytes([9]) + struct.pack("<i", -3) + bytes([4])])
+    v = lk.post_best(clear=True, keep=True, check=seen.append).value
+    assert v == (9, -3, 4)
+    assert seen == [(9, -3, 4)]
+    assert lk.sent == b"Y" + bytes([5])
+
+
+def test_post_best_check_may_reject_a_reply():
+    def check(v):
+        raise ValueError(v)
+
+    lk = FakeLink([b"y" + bytes([1]) + struct.pack("<i", 2) + bytes([3])])
+    with pytest.raises(ValueError):
+        lk.post_best(check=check).value
+
+
+def test_post_window_and_post_jump_send_their_frames():
+    lk = FakeLink([b"x", b"j"])
+    lk.post_window(0x0102)
+    lk.post_jump(0x0304)
+    lk.sync()
+    assert lk.sent == b"X\x02\x01" + b"J\x04\x03"
+
+
+def test_reply_value_collects_earlier_replies_in_order():
+    lk = FakeLink([b"x", b"z"])
+    first = lk.post_window(1)
+    second = lk.post_new_conversation()
+    assert second.value is None
+    assert first.done and second.done
