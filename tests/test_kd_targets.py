@@ -56,3 +56,25 @@ def test_unknown_person_is_rejected(data):
     with pytest.raises(SystemExit) as e:
         kd_targets.parse_args(["nobody"])
     assert "not found" in str(e.value)
+
+
+def test_byte_decoder_covers_every_byte_once():
+    bd = kd_targets.byte_decoder()
+    assert len(bd) == 256
+    assert sorted(bd.values()) == list(range(256))
+
+
+def test_byte_decoder_keeps_printable_ascii():
+    bd = kd_targets.byte_decoder()
+    assert all(bd[chr(b)] == b for b in range(ord("!"), ord("~") + 1))
+    assert bd["Ġ"] == 32
+
+
+def test_byte_encoder_inverts_the_decoder():
+    assert all(kd_targets.BD[kd_targets.BE[b]] == b for b in range(256))
+
+
+def test_piece_bytes_maps_byte_level_pieces_and_added_tokens():
+    assert kd_targets.piece_bytes("Ġhi", False) == b" hi"
+    assert kd_targets.piece_bytes("Ċ", False) == b"\n"
+    assert kd_targets.piece_bytes("é", True) == "é".encode()
