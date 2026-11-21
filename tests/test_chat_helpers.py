@@ -223,3 +223,80 @@ def test_emoji_mask_marks_slot_tokens_and_skips_modifiers(tmp_path, monkeypatch)
     mask = C.emoji_mask()
     assert mask.shape == (T.VOCAB,)
     assert sorted(mask.nonzero()[0].tolist()) == [10, 13]
+
+
+class BoardStub:
+    def __init__(self, script, pos=0):
+        self.script = list(script)
+        self.pos = pos
+        self.p = {"fmt": {"logit": 8}}
+        self.fed = []
+        self.stepped = []
+        self.bot_mass = []
+        self.bot_msgs = 0
+        self.bot_emoji = 0
+
+    def emoji_gain(self, emoji):
+        return 1.0
+
+    def make_room(self, need):
+        pass
+
+    def feed(self, ids):
+        self.fed.append(list(ids))
+        self.pos += len(ids)
+
+    def step(self, t):
+        self.stepped.append(t)
+        self.pos += 1
+        return self.script.pop(0)
+
+
+class EncodedText:
+    def __init__(self, ids):
+        self.ids = ids
+
+
+class IdTok:
+    def encode(self, text, add_special_tokens=False):
+        return EncodedText([plain(10)[int(c)] for c in text])
+
+    def decode(self, toks):
+        return "".join(str(plain(10).index(t)) for t in toks)
+
+
+def board_stub(script, pos=0):
+    stub = BoardStub(script, pos)
+    stub.link = type("L", (), {"settings": lambda s, *a: setattr(stub, "settings", a)})()
+    return stub
+
+
+def test_board_reply_splits_messages_at_the_marker_and_stops_at_you():
+    a, b, c = plain(3)
+    script = [(a, 0, 1, 0), (b, 0, 1, 0), (T.HIM, 0, 1, 0), (c, 0, 1, 0), (T.YOU, 0, 1, 0)]
+    stub = board_stub(script)
+    texts, n, secs = C.board_reply(stub, IdTok(), "12", 1.0, 4.0)
+    assert texts == ["01", "2"]
+    assert n == 5 and secs == 0.0
+    assert stub.fed == [[T.BOS, T.YOU, plain(10)[1], plain(10)[2]]]
+    assert stub.stepped == [T.HIM, a, b, T.HIM, c]
+    assert stub.bot_msgs == 2
+    assert stub.settings[0] == 256 and stub.settings[1] == 4 * 2 ** 8
+
+
+def test_board_reply_omits_bos_after_the_first_message():
+    stub = board_stub([(T.YOU, 0, 1, 0)], pos=7)
+    texts, n, _ = C.board_reply(stub, IdTok(), "1", 1.0, 4.0)
+    assert texts == [] and n == 1
+    assert stub.fed == [[T.YOU, plain(10)[1]]]
+    assert stub.bot_msgs == 0
+
+
+def test_board_reply_is_capped_at_max_reply():
+    a = plain(1)[0]
+    stub = board_stub([(a, 0, 1, 0)] * C.MAX_REPLY)
+    texts, n, _ = C.board_reply(stub, IdTok(), "1", 1.0, 4.0)
+    assert n == C.MAX_REPLY
+    assert len(stub.stepped) == C.MAX_REPLY
+    assert texts == ["0" * C.MAX_REPLY]
+    assert stub.fed[-1] == [a]
