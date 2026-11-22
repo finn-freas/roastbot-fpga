@@ -74,3 +74,39 @@ def test_image_records_symbols_and_serialises_words():
     assert img.sym == {"a": (0, 2), "b": (2, 1)}
     assert img.here() == 3
     assert img.bytes() == struct.pack("<3Q", 1, 2, 2 ** 64 - 1)
+
+
+def test_load_model_requires_exactly_one_argument():
+    with pytest.raises(SystemExit) as e:
+        P.load_model([])
+    assert "usage" in str(e.value)
+    with pytest.raises(SystemExit):
+        P.load_model(["a.pkl", "b.pkl"])
+
+
+def test_load_model_reports_missing_file(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        P.load_model([str(tmp_path / "none.pkl")])
+    assert "no such model file" in str(e.value)
+
+
+def test_load_model_rejects_garbage_and_non_models(tmp_path):
+    bad = tmp_path / "bad.pkl"
+    bad.write_bytes(b"not a pickle")
+    with pytest.raises(SystemExit) as e:
+        P.load_model([str(bad)])
+    assert "not a model pickle" in str(e.value)
+    import pickle
+    other = tmp_path / "other.pkl"
+    other.write_bytes(pickle.dumps({"weights": 1}))
+    with pytest.raises(SystemExit) as e:
+        P.load_model([str(other)])
+    assert "no 'cfg' entry" in str(e.value)
+
+
+def test_load_model_returns_path_and_dict(tmp_path):
+    import pickle
+    good = tmp_path / "m.pkl"
+    good.write_bytes(pickle.dumps({"cfg": 1}))
+    src, p = P.load_model([str(good)])
+    assert src == good and p == {"cfg": 1}
