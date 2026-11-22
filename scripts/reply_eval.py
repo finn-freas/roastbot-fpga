@@ -49,7 +49,11 @@ def gen(name, n_best, budget, alpha=None, temp=0.8, cut=4.0, rounds=2):
 
 def reference(n=40):
     import random
-    convs = [json.loads(line)["turns"] for line in open(ROOT / "data" / "people" / "rb3" / "val.jsonl")][:n]
+    val = ROOT / "data" / "people" / "rb3" / "val.jsonl"
+    if not val.is_file():
+        raise SystemExit(f"{val} not found")
+    convs = [json.loads(line)["turns"] for line in open(val)][:n]
+    OUT.mkdir(parents=True, exist_ok=True)
     chats = [[[a, b, 0] for (sa, a), (sb, b) in zip(c[::2], c[1::2]) if sa == 0 and sb == 1] for c in convs]
     replies = [t[1] for c in chats for t in c]
     random.Random(3).shuffle(replies)
