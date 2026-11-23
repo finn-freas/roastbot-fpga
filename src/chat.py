@@ -727,7 +727,10 @@ def main():
                     cut = value
                     print(f"cutoff: only words within {cut} of the best (lower = safer, higher = wilder)")
                 elif cmd == "emoji" and arg:
-                    emoji = finite(arg)
+                    value = finite(arg)
+                    if value < 0:
+                        raise ValueError(arg)
+                    emoji = value
                     print(f"emoji {emoji} (0.5 = their usual amount, 1 = more, 0 = none)")
                 elif cmd == "seed" and arg:
                     seed = pick_seed(arg)

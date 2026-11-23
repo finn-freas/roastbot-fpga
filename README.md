@@ -50,7 +50,7 @@ Lines that start with `/` are commands, not messages:
 | `/reset` | clear the conversation |
 | `/temp 0.6`, `/temp auto` | sampling temperature, which must be above 0 (`auto` goes back to the default) |
 | `/cut 4`, `/cut 0` | only words within this distance of the best one can be picked, so lower is safer and higher is wilder; 0 or more |
-| `/emoji 0.5` | how many emoji, where 0.5 is the usual amount, 1 is more and 0 is none |
+| `/emoji 0.5` | how many emoji, where 0.5 is the usual amount, 1 is more and 0 is none; 0 or more |
 | `/best 6`, `/best auto` | how many candidate replies to write per message (1 turns it off); the one that reads most like the bot is shown |
 | `/seed 7`, `/seed random` | restart the random numbers from a seed |
 | `/info` | the layer count, tokens used, current settings and SDRAM size |
