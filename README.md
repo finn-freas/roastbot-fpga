@@ -41,6 +41,23 @@ with `--seed <number>`. To build the bitstream yourself, run `scripts/build_boar
 placement seed places, so try a few (`SEED=6 scripts/build_board.sh`), and check the SDRAM
 timing on the board with `scripts/sdram_diag.py` before you trust it.
 
+## Chat commands
+
+Lines that start with `/` are commands, not messages:
+
+| Command | |
+|-|-|
+| `/reset` | clear the conversation |
+| `/temp 0.6`, `/temp auto` | sampling temperature, which must be above 0 (`auto` goes back to the default) |
+| `/cut 4`, `/cut 0` | only words within this distance of the best one can be picked, so lower is safer and higher is wilder; 0 or more |
+| `/emoji 0.5` | how many emoji, where 0.5 is the usual amount, 1 is more and 0 is none |
+| `/best 6`, `/best auto` | how many candidate replies to write per message (1 turns it off); the one that reads most like the bot is shown |
+| `/seed 7`, `/seed random` | restart the random numbers from a seed |
+| `/info` | the layer count, tokens used, current settings and SDRAM size |
+| `/quit` | leave (so do `/q` and `/exit`) |
+
+A bad value prints a message and leaves the setting as it was.
+
 ## Checking the board
 
 `link.py`, `chat.py --board` and the board scripts open the Tang Nano 20K's second USB serial port at 1,000,000 baud. The port is the `/dev/serial/by-id/*SIPEED*if01*` device when one exists and `/dev/ttyUSB1` otherwise. If the port cannot be opened, the tools print the reason and exit.
