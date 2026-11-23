@@ -300,3 +300,39 @@ def test_board_reply_is_capped_at_max_reply():
     assert len(stub.stepped) == C.MAX_REPLY
     assert texts == ["0" * C.MAX_REPLY]
     assert stub.fed[-1] == [a]
+
+
+@pytest.mark.parametrize("command, shown", [
+    ("/temp 0.5", "temperature 0.5 (board inv_t 512)"),
+    ("/temp auto", "each person's own temperature"),
+    ("/emoji 0", "emoji 0.0"),
+    ("/best 1", "one reply per message"),
+    ("/best 99", f"writing up to {C.BEST_N} replies"),
+    ("/best auto", "each person's own number of candidates"),
+    ("/seed 7", "seed 7"),
+])
+def test_valid_command_values_are_acknowledged(monkeypatch, tmp_path, capsys, command, shown):
+    run_main(monkeypatch, tmp_path, [command, "/quit"])
+    out = capsys.readouterr().out
+    assert shown in out
+    assert "not a valid value" not in out
+
+
+@pytest.mark.parametrize("command", ["/help", "/nonsense", "/temp", "/cut", "/best"])
+def test_unknown_or_incomplete_commands_print_the_help(monkeypatch, tmp_path, capsys, command):
+    run_main(monkeypatch, tmp_path, [command, "/quit"])
+    assert C.HELP in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("quit_word", ["/q", "/quit", "/exit"])
+def test_quit_aliases_end_the_session(monkeypatch, tmp_path, capsys, quit_word):
+    run_main(monkeypatch, tmp_path, [quit_word])
+    assert "not a valid value" not in capsys.readouterr().out
+
+
+def test_reset_clears_the_conversation(monkeypatch, tmp_path, capsys):
+    calls = []
+    monkeypatch.setattr(FakePerson, "reset", lambda self: calls.append(1), raising=False)
+    run_main(monkeypatch, tmp_path, ["/reset", "/quit"])
+    assert calls == [1]
+    assert "conversation cleared" in capsys.readouterr().out
