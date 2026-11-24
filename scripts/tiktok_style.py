@@ -44,7 +44,7 @@ def main():
             print(f"  scored {b + len(part)}/{len(pool)}", flush=True)
     best = [c for _, c in sorted(zip(score, pool), reverse=True)[:TOP]]
     out = ROOT / "data" / "style" / "tiktok_roasts.json"
-    out.parent.mkdir(exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(best, ensure_ascii=False, indent=0))
     print(f"kept {len(best)} -> {out}; top:")
     for c in best[:25]:
