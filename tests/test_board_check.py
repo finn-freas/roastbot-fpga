@@ -97,3 +97,46 @@ def test_main_flags_a_reply_that_differs_from_the_cpu(models, monkeypatch, capsy
     assert out.count("DIFFERENT") == n
     assert "cpu: cpu says" in out
     assert "'ur a toaster'" in out
+
+
+def test_main_best_compares_candidate_lists_and_histories(models, monkeypatch, capsys):
+    patch_main(monkeypatch, models, None, None)
+    calls = []
+
+    def fake_best(p, t, q, temp, pen, rng=None, n_best=None):
+        calls.append((rng is not None, n_best))
+        return ["a", "b"], 3, 0.5
+
+    monkeypatch.setattr(chat, "reply_best", fake_best)
+    monkeypatch.setattr(sys, "argv", ["board_check.py", "--best"])
+    board_check.main()
+    out = capsys.readouterr().out
+    n = 2 * len(board_check.PROMPTS)
+    assert f"{n}/{n} replies identical to the CPU" in out
+    assert calls[:2] == [(True, 2), (False, 2)]
+    assert "['a', 'b']" in out
+
+
+def test_main_best_flags_a_different_history(models, monkeypatch, capsys):
+    class Board(FakePerson):
+        hist = ["other"]
+
+    patch_main(monkeypatch, models, None, None)
+    monkeypatch.setattr(chat, "BoardPerson", lambda key, lk: Board())
+    monkeypatch.setattr(chat, "reply_best", lambda *a, **k: (["a", "b"], 3, 0.5))
+    monkeypatch.setattr(sys, "argv", ["board_check.py", "--best"])
+    board_check.main()
+    out = capsys.readouterr().out
+    assert out.count("DIFFERENT") == 2 * len(board_check.PROMPTS)
+
+
+def test_main_reports_undone_steps_for_a_pipelined_link(models, monkeypatch, capsys):
+    class Piped(FakePerson):
+        pipe = True
+        undone = 4
+
+    patch_main(monkeypatch, models, "ok", "ok")
+    monkeypatch.setattr(chat, "BoardPerson", lambda key, lk: Piped())
+    monkeypatch.setattr(sys, "argv", ["board_check.py"])
+    board_check.main()
+    assert "4 steps ran past a stopped candidate and were undone" in capsys.readouterr().out
