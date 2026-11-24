@@ -70,3 +70,16 @@ def test_load_filters_and_cuts(tmp_path, capsys):
     assert len(data["train"]) == 2
     assert [len(c) for c in data["train"]] == [4, 4]
     assert "dropped" in capsys.readouterr().out
+
+
+def test_score_reuses_a_cache_with_matching_length(tmp_path):
+    data = {"train": [[[0, "hi"], [1, "yo"], [0, "ok"], [1, "bye"]]], "val": [[[1, "x"]]]}
+    cache = tmp_path / "scores.json"
+    cache.write_text("[[0.1], [0.2], [0.3]]")
+
+    def model():
+        raise AssertionError("cache should be used")
+
+    spots, scores = ef.score(data, cache, model)
+    assert spots == [("train", 0, 1), ("train", 0, 3), ("val", 0, 0)]
+    assert scores == [[0.1], [0.2], [0.3]]
