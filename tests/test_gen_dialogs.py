@@ -90,3 +90,72 @@ def test_parse_args_rejects_bad_input():
     for argv in (["x"], ["0"], ["5", "mon"], ["5", "batch=x"], ["5", "batch=0"], ["1", "mom", "batch=2", "extra"]):
         with pytest.raises(SystemExit):
             g.parse_args(argv)
+
+
+class FakeBatch(dict):
+    def to(self, device):
+        return self
+
+
+class FakeTok:
+    pad_token_id = 0
+    eos_token_id = 1
+
+    def __call__(self, prompts, return_tensors, padding):
+        g.torch.manual_seed(0)
+        return FakeBatch(input_ids=g.torch.zeros(len(prompts), 3, dtype=g.torch.long))
+
+    def batch_decode(self, y, skip_special_tokens):
+        assert skip_special_tokens
+        return [GOOD] * len(y)
+
+
+class FakeNet:
+    def generate(self, input_ids, **kw):
+        assert kw["do_sample"] and kw["max_new_tokens"] in (260, 320)
+        return g.torch.zeros(len(input_ids), 5, dtype=g.torch.long)
+
+
+def run_main(tmp_path, monkeypatch, argv):
+    import json
+
+    (tmp_path / "data" / "style").mkdir(parents=True)
+    (tmp_path / "data" / "people").mkdir(exist_ok=True)
+    (tmp_path / "data" / "style" / "roast_bank.json").write_text(json.dumps(["a", "b", "c", "d"]))
+    (tmp_path / "data" / "style" / "tiktok_roasts.json").write_text(json.dumps(["one two three"] * 6))
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "q4", lambda name: (FakeTok(), FakeNet()))
+    monkeypatch.setattr(g, "chat", lambda tok, system, user: system)
+    monkeypatch.setattr(sys, "argv", ["gen_dialogs.py"] + argv)
+    g.main()
+    return tmp_path / "data" / "people"
+
+
+def read_turns(path):
+    import json
+
+    return [json.loads(line)["turns"] for line in path.read_text().splitlines()]
+
+
+def test_main_writes_partial_and_splits_train_and_val(tmp_path, monkeypatch, capsys):
+    people = run_main(tmp_path, monkeypatch, ["13", "batch=4"])
+    d = people / "rb"
+    assert len(read_turns(d / "partial.jsonl")) == 16
+    assert len(read_turns(d / "val.jsonl")) == 1
+    assert len(read_turns(d / "train.jsonl")) == 15
+    out = capsys.readouterr().out
+    assert "topic: starting" in out
+    assert "16 conversations ->" in out
+
+
+def test_main_resumes_from_the_partial_file(tmp_path, monkeypatch, capsys):
+    import json
+
+    d = tmp_path / "data" / "people" / "rb_arg"
+    d.mkdir(parents=True)
+    old = g.parse(GOOD)
+    (d / "partial.jsonl").write_text(json.dumps({"turns": old}) + "\n")
+    people = run_main(tmp_path, monkeypatch, ["3", "argue", "batch=2"])
+    assert "argue: resuming with 1 conversations" in capsys.readouterr().out
+    assert len(read_turns(people / "rb_arg" / "partial.jsonl")) == 3
+    assert len(read_turns(people / "rb_arg" / "val.jsonl")) + len(read_turns(people / "rb_arg" / "train.jsonl")) == 3
