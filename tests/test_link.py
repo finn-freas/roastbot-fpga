@@ -539,3 +539,32 @@ def test_reply_value_collects_earlier_replies_in_order():
     second = lk.post_new_conversation()
     assert second.value is None
     assert first.done and second.done
+
+
+def test_step_bad_reply_raises():
+    lk = FakeLink([b"x"])
+    with pytest.raises(IOError, match="step: bad reply"):
+        lk.step(1)
+
+
+def test_run_bad_reply_raises():
+    lk = FakeLink([b"q"])
+    run = lk.start_run(3, 40)
+    with pytest.raises(IOError, match="run: bad reply"):
+        run.next()
+
+
+def test_run_next_after_the_end_returns_none_without_reading():
+    lk = FakeLink([b"e", step_reply(1)])
+    run = lk.start_run(3, 40)
+    assert run.next() is None
+    assert run.next() is None
+    assert bytes(lk.replies) == step_reply(1)
+
+
+def test_run_next_collects_pending_replies_first():
+    lk = FakeLink([b"s", step_reply(4), b"e"])
+    lk.post_seed(7)
+    run = lk.start_run(3, 40)
+    assert run.next()[0] == 4
+    assert lk.pending == []
