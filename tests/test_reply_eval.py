@@ -75,3 +75,49 @@ def test_reference_names_missing_validation_file(tmp_path, monkeypatch):
     monkeypatch.setattr(re_, "OUT", tmp_path / "eval")
     with pytest.raises(SystemExit, match="val.jsonl not found"):
         re_.reference()
+
+
+def test_main_dispatches_parsed_arguments(out, monkeypatch):
+    calls = []
+    monkeypatch.setattr(re_, "sense", lambda names: calls.append(("sense", names)))
+    monkeypatch.setattr(re_, "gen", lambda *a: calls.append(("gen", a)))
+    re_.main(["sense", "a", "b"])
+    re_.main(["gen", "n", "2", "50"])
+    assert calls == [("sense", ["a", "b"]), ("gen", ("n", 2, 50))]
+
+
+def test_gen_writes_one_run_with_replies_and_budget(tmp_path, monkeypatch):
+    import json
+    import types
+
+    monkeypatch.setattr(re_, "OUT", tmp_path / "eval")
+    monkeypatch.setattr(re_, "CHATS", [["hi", "yo"]])
+    monkeypatch.setattr(re_, "ARGUE", [["no"]])
+    monkeypatch.setenv("MDIR", "somewhere")
+    seen = {}
+
+    class Person:
+        def __init__(self, style, mdir):
+            seen["init"] = (style, mdir)
+            seen["resets"] = 0
+
+        def reset(self):
+            seen["resets"] += 1
+
+    def reply_best(p, tok, m, temp, cut, rng, n_best, budget):
+        seen.setdefault("calls", []).append((m, temp, cut, n_best, budget))
+        return [m + "1", "�" + m + "2"], 7, None
+
+    fake_chat = types.SimpleNamespace(STYLE={"pr": (1, 0.0, "x")}, Person=Person, make_rng=lambda s: s,
+                                      reply_best=reply_best)
+    fake_tok = types.SimpleNamespace(load_chat=lambda: "tok")
+    monkeypatch.setitem(sys.modules, "chat", fake_chat)
+    monkeypatch.setitem(sys.modules, "tok", fake_tok)
+    re_.gen("run", 3, 90, alpha=0.4, rounds=2)
+    runs = json.loads((tmp_path / "eval" / "run.json").read_text())
+    assert len(runs) == 4
+    assert runs[0] == [["hi", "hi1 / hi2", 7], ["yo", "yo1 / yo2", 7]]
+    assert seen["init"] == ("pr", "somewhere")
+    assert seen["resets"] == 4
+    assert fake_chat.STYLE["pr"] == (3, 0.4, "x")
+    assert seen["calls"][0] == ("hi", 0.8, 4.0, 3, 90)
