@@ -159,3 +159,37 @@ def test_main_resumes_from_the_partial_file(tmp_path, monkeypatch, capsys):
     assert "argue: resuming with 1 conversations" in capsys.readouterr().out
     assert len(read_turns(people / "rb_arg" / "partial.jsonl")) == 3
     assert len(read_turns(people / "rb_arg" / "val.jsonl")) + len(read_turns(people / "rb_arg" / "train.jsonl")) == 3
+
+
+def test_mom_lines_counts_only_b_turns_that_mention_a_mom():
+    turns = [[0, "your mom is nice"], [1, "ur mom says hi"], [1, "nothing here"], [1, "yo mama said so"]]
+    assert g.mom_lines(turns) == 2
+
+
+def test_mom_lines_handles_curly_apostrophe():
+    assert g.mom_lines([[1, "you’re mom was busy"]]) == 1
+    assert g.mom_lines([[1, "my mom is fine"]]) == 0
+
+
+def test_mom_fits_requires_an_insult_before_the_mom_line():
+    quiet = [[0, "what time is it"], [1, "your mom knows"]]
+    assert g.mom_fits(quiet) is False
+    insulted = [[0, "fuck you"], [1, "your mom likes me more"]]
+    assert g.mom_fits(insulted) is True
+
+
+def test_mom_fits_rejects_copied_stock_lines():
+    turns = [[0, "fuck you"], [1, g.MOMS[3]]]
+    assert g.mom_fits(turns) is False
+
+
+def test_mom_fits_ignores_turns_without_a_mom_line():
+    assert g.mom_fits([[0, "hello"], [1, "hi"]]) is True
+    assert g.mom_fits([[1, "your mom opens"]]) is True
+
+
+def test_style_lines_reads_the_style_file(monkeypatch, tmp_path):
+    (tmp_path / "data" / "style").mkdir(parents=True)
+    (tmp_path / "data" / "style" / "tiktok_roasts.json").write_text('["a b", "c"]')
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    assert g.style_lines() == ["a b", "c"]
