@@ -54,3 +54,47 @@ def test_group_pattern_matches_word_stems_only_at_word_start():
 def test_tiktok_path_under_data_style():
     assert w.TIKTOK == w.ROOT / "data" / "style" / "tiktok_roasts.json"
     assert w.ROOT.name == Path(__file__).resolve().parent.parent.name
+
+
+def test_q4_loads_quantized_model_on_gpu(monkeypatch):
+    import types
+
+    calls = {}
+
+    class Tok:
+        padding_side = "right"
+
+    class Net:
+        def eval(self):
+            calls["eval"] = True
+            return self
+
+    class AutoTokenizer:
+        @staticmethod
+        def from_pretrained(name):
+            calls["tok"] = name
+            return Tok()
+
+    class AutoModelForCausalLM:
+        @staticmethod
+        def from_pretrained(name, **kw):
+            calls["net"] = (name, kw)
+            return Net()
+
+    class BitsAndBytesConfig:
+        def __init__(self, **kw):
+            self.kw = kw
+
+    fake_torch = types.SimpleNamespace(bfloat16="bf16")
+    fake_tf = types.SimpleNamespace(AutoTokenizer=AutoTokenizer, AutoModelForCausalLM=AutoModelForCausalLM,
+                                    BitsAndBytesConfig=BitsAndBytesConfig)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "transformers", fake_tf)
+    tok, net = w.q4("some/model")
+    assert tok.padding_side == "left"
+    assert calls["tok"] == "some/model" and calls["eval"]
+    name, kw = calls["net"]
+    assert name == "some/model"
+    assert kw["device_map"] == "cuda:0"
+    assert kw["quantization_config"].kw["load_in_4bit"] is True
+    assert kw["quantization_config"].kw["bnb_4bit_compute_dtype"] == "bf16"
