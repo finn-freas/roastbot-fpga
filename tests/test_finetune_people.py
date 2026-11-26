@@ -72,3 +72,34 @@ def test_distillation_targets_follow_the_labelled_tokens():
             if x[r, t] != T.PAD:
                 assert ti[r, t, 0] == x[r, t] - 10 + 1
                 assert tp[r, t, 0] == pytest.approx((x[r, t] - 10 + 1) / 39)
+
+
+class Uniform(torch.nn.Module):
+    def __init__(self, vocab):
+        super().__init__()
+        self.vocab = vocab
+        self.w = torch.nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        return (self.w + torch.zeros(x.shape[0], x.shape[1], self.vocab))
+
+
+def test_eval_people_counts_labelled_targets_and_restores_train_mode():
+    net = Uniform(64)
+    net.train()
+    nll, n = F.eval_people(net, [session(10)], 4)
+    assert n == 5
+    assert nll == pytest.approx(float(np.log(64)), rel=1e-5)
+    assert net.training
+
+
+def test_eval_people_covers_every_segment_of_a_long_session():
+    net = Uniform(64)
+    _, n = F.eval_people(net, [session(21), session(9, first=40)], 4)
+    assert n == 10 + 4
+
+
+def test_eval_people_without_labelled_tokens_returns_zero():
+    ids = np.arange(10, 20, dtype=np.int64)
+    nll, n = F.eval_people(Uniform(64), [(ids, np.zeros(10, dtype=bool))], 4)
+    assert (nll, n) == (0.0, 0)
