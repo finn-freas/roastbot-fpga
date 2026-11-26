@@ -78,3 +78,44 @@ def test_piece_bytes_maps_byte_level_pieces_and_added_tokens():
     assert kd_targets.piece_bytes("Ġhi", False) == b" hi"
     assert kd_targets.piece_bytes("Ċ", False) == b"\n"
     assert kd_targets.piece_bytes("é", True) == "é".encode()
+
+
+@pytest.fixture
+def ours(tmp_path, monkeypatch):
+    from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
+    import tok as T
+    t = Tokenizer(models.BPE())
+    t.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    t.decoder = decoders.ByteLevel()
+    tr = trainers.BpeTrainer(vocab_size=300, special_tokens=T.SPECIAL, min_frequency=1,
+                             initial_alphabet=pre_tokenizers.ByteLevel.alphabet(), show_progress=False)
+    t.train_from_iterator(["hello there my friend"] * 20, tr)
+    t.add_tokens(["lol"])
+    path = tmp_path / "tokenizer_chat.json"
+    t.save(str(path))
+    monkeypatch.setattr(T, "CHAT_TOK", path)
+    return kd_targets.Ours(t), t
+
+
+def test_ours_bytes_of_added_and_regular_tokens(ours):
+    o, t = ours
+    lol = t.token_to_id("lol")
+    assert o.bytes(lol) == b"lol"
+    assert o.bytes(t.token_to_id("h")) == b"h"
+
+
+def test_ours_first_prefers_added_token_prefix(ours):
+    o, t = ours
+    assert o.first(b"lol!") == t.token_to_id("lol")
+
+
+def test_ours_first_falls_back_to_the_tokenizer_model(ours):
+    o, t = ours
+    first = o.first(b"hello")
+    assert first == t.model.tokenize("hello")[0].id
+    assert o.memo[b"hello"] == first
+
+
+def test_ours_first_of_empty_bytes_is_none(ours):
+    o, _ = ours
+    assert o.first(b"") is None
