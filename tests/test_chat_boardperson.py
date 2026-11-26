@@ -206,3 +206,68 @@ def test_kept_candidate_with_undone_steps_is_rejected():
     p.overrun = True
     with pytest.raises(IOError, match="undone"):
         p.cand_end(keep=True)
+
+
+class Posted:
+    def __init__(self, value):
+        self.value = value
+
+
+def test_settings_post_or_send_by_pipeline_mode():
+    p = board()
+    p.settings(1, 2, 3, None)
+    assert p.link.calls == [("settings", (1, 2, 3), {})]
+    p = board(pipe=True)
+    p.settings(1, 2, 3, None)
+    assert p.link.calls == [("post_settings", (1, 2, 3), {})]
+
+
+def test_pipelined_rewind_posts_a_jump_and_restarts_the_run_count():
+    p = board(pipe=True)
+    p.feed([1, 2, 3])
+    p.j = 4
+    p.link.calls.clear()
+    p.rewind(1)
+    assert p.pos == 1 and p.hist == [1] and p.j == 0
+    assert p.link.calls == [("post_jump", (1,), {})]
+
+
+def test_pipelined_skip_posts_a_jump_to_the_new_position():
+    p = board(pipe=True)
+    p.feed([1])
+    p.link.calls.clear()
+    p.skip([8, 9])
+    assert p.pos == 3 and p.hist == [1, 8, 9]
+    assert p.link.calls == [("post_jump", (3,), {})]
+
+
+def test_pipelined_window_posts_and_sets_base():
+    p = board(pipe=True)
+    p.window(7)
+    assert p.base == 7
+    assert p.link.calls == [("post_window", (7,), {})]
+
+
+def test_pipelined_score_after_waits_for_the_value_and_advances():
+    p = board(pipe=True)
+    p.link.post_f = lambda op, t, nxt: Posted((nxt, op, t))
+    assert p.score_after(5, 6) == (6, 2, 5)
+    assert p.pos == 1 and p.hist == [5] and p.j == 1
+
+
+def test_pipelined_score_seq_posts_every_pair_before_reading_any():
+    p = board(pipe=True)
+    posted = []
+    p.link.post_f = lambda op, t, nxt: posted.append((t, nxt)) or Posted(nxt * 10)
+    out = p.score_seq([(1, 2), (2, 3)])
+    assert posted == [(1, 2), (2, 3)]
+    assert p.pos == 2 and p.hist == [1, 2]
+    assert list(out) == [20, 30]
+
+
+def test_pipelined_best_reset_clears_the_board_best_and_the_overrun_flag():
+    p = board(pipe=True)
+    p.overrun = True
+    p.best_reset()
+    assert not p.overrun
+    assert p.link.calls[-1] == ("post_best", (), {"clear": True})
