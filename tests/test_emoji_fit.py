@@ -83,3 +83,29 @@ def test_score_reuses_a_cache_with_matching_length(tmp_path):
     spots, scores = ef.score(data, cache, model)
     assert spots == [("train", 0, 1), ("train", 0, 3), ("val", 0, 0)]
     assert scores == [[0.1], [0.2], [0.3]]
+
+
+def test_main_writes_dataset_from_cached_scores(tmp_path, monkeypatch, capsys):
+    import types
+
+    monkeypatch.setattr(ef, "ROOT", tmp_path)
+    monkeypatch.setitem(sys.modules, "writer", types.SimpleNamespace(WRITER="w", q4=lambda w: 1 / 0))
+    src = tmp_path / "data" / "people" / "rb"
+    src.mkdir(parents=True)
+    convs = [[[0, "yo"], [1, f"hi {n}"], [0, "sup"], [1, "ok then"]] for n in range(6)]
+    for split in ("train", "val"):
+        (src / f"{split}.jsonl").write_text("".join(json.dumps({"turns": c}) + "\n" for c in convs))
+    dst = tmp_path / "data" / "people" / "out"
+    n_spots = 2 * len(convs) * 2
+    rows = [[-5.0 if q % 2 else -0.1] + [-3.0 - 0.1 * ((q + k) % 5) for k in range(20)] for q in range(n_spots)]
+    dst.mkdir()
+    (dst / "emoji_scores_rb.json").write_text(json.dumps(rows))
+    ef.main(["0.5", "src=rb", "dst=out"])
+    out = capsys.readouterr().out
+    assert "B texts end in emoji" in out
+    for split in ("train", "val"):
+        got = [json.loads(line)["turns"] for line in (dst / f"{split}.jsonl").read_text().splitlines()]
+        assert len(got) == len(convs)
+        assert all(len(c) == 4 and c[0] == [0, "yo"] for c in got)
+    texts = [t for line in (dst / "train.jsonl").read_text().splitlines() for k, t in json.loads(line)["turns"] if k == 1]
+    assert any(t.split(" ")[-1] in ef.EMOJI or t[-1] in "".join(ef.EMOJI) for t in texts)
